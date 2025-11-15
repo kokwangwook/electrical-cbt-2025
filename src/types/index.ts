@@ -87,9 +87,12 @@ export interface Category {
 export interface Feedback {
   id: number; // 피드백 고유 ID
   author: string; // 작성자 이름 (게스트는 "게스트")
+  userId?: number; // 작성자 ID (사용자별 제보 내역 조회용)
   content: string; // 피드백 내용
   timestamp: number; // 작성 시간 (timestamp)
   type?: 'suggestion' | 'bug' | 'question'; // 피드백 유형
+  questionId?: number; // 문제 ID (오류 제보 시)
+  question?: Question; // 문제 정보 (오류 제보 시)
 }
 
 // ========== 출제 설정 (ExamConfig) ==========

@@ -1240,7 +1240,11 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
 
           {/* 제보 게시판 모달 */}
           {showFeedbackBoard && (
-            <FeedbackBoard onClose={() => setShowFeedbackBoard(false)} />
+            <FeedbackBoard 
+              onClose={() => setShowFeedbackBoard(false)}
+              currentQuestion={currentQuestion}
+              currentQuestionIndex={currentIndex}
+            />
           )}
 
           {/* 인쇄 옵션 선택 모달 */}
@@ -1856,7 +1860,11 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
 
       {/* 제보 게시판 모달 */}
       {showFeedbackBoard && (
-        <FeedbackBoard onClose={() => setShowFeedbackBoard(false)} />
+        <FeedbackBoard 
+          onClose={() => setShowFeedbackBoard(false)}
+          currentQuestion={currentQuestion}
+          currentQuestionIndex={currentIndex}
+        />
       )}
 
       {/* 공학용 계산기 모달 */}

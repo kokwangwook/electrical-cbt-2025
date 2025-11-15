@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { Question, Member, ExamConfig } from '../types';
+import type { Question, Member, ExamConfig, Feedback } from '../types';
 import {
   getQuestions,
   addQuestion,
@@ -21,6 +21,8 @@ import {
   clearAllCaches,
   compressImage,
   getLocalStorageUsage,
+  getFeedbacks,
+  deleteFeedback,
 } from '../services/storage';
 import type { LoginHistory } from '../types';
 import {
@@ -47,7 +49,8 @@ export default function Admin() {
   const ADMIN_PASSWORD = 'admin2024';
 
   // 탭
-  const [activeTab, setActiveTab] = useState<'questions' | 'members' | 'sync' | 'statistics' | 'config' | 'login-history'>('questions');
+  const [activeTab, setActiveTab] = useState<'questions' | 'members' | 'sync' | 'statistics' | 'config' | 'login-history' | 'feedbacks'>('questions');
+  const [feedbackSubTab, setFeedbackSubTab] = useState<'bug' | 'suggestion' | 'question'>('bug'); // 제보 게시판 하위 탭
 
   // 출제 설정
   const [examConfig, setExamConfig] = useState<ExamConfig>(getExamConfig());
@@ -80,6 +83,9 @@ export default function Admin() {
 
   // 로그인 기록
   const [loginHistory, setLoginHistory] = useState<LoginHistory[]>([]);
+
+  // 제보 게시판
+  const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
 
   // 동기화
   const [syncLoading, setSyncLoading] = useState(false);
@@ -131,8 +137,15 @@ export default function Admin() {
       loadQuestions();
       loadMembers();
       loadLoginHistory();
+      loadFeedbacks();
     }
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (activeTab === 'feedbacks') {
+      loadFeedbacks();
+    }
+  }, [activeTab, feedbackSubTab]);
 
   const handleLogin = () => {
     if (password === ADMIN_PASSWORD) {
@@ -157,6 +170,17 @@ export default function Admin() {
   const loadLoginHistory = () => {
     const history = getLoginHistory();
     setLoginHistory(history);
+  };
+
+  const loadFeedbacks = () => {
+    const allFeedbacks = getFeedbacks();
+    // 하위 탭에 따라 필터링
+    if (feedbackSubTab === 'bug' || feedbackSubTab === 'suggestion' || feedbackSubTab === 'question') {
+      const filtered = allFeedbacks.filter(f => f.type === feedbackSubTab);
+      setFeedbacks(filtered);
+    } else {
+      setFeedbacks(allFeedbacks);
+    }
   };
 
   // 문제 현황 계산
@@ -1225,6 +1249,16 @@ export default function Admin() {
               }`}
             >
               📜 로그인 기록 ({loginHistory.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('feedbacks')}
+              className={`flex-1 py-4 px-6 font-semibold transition-colors ${
+                activeTab === 'feedbacks'
+                  ? 'border-b-2 border-blue-500 text-blue-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              📋 제보 게시판 ({getFeedbacks().length})
             </button>
           </div>
         </div>
@@ -2600,6 +2634,119 @@ export default function Admin() {
                   <div className="mt-4 text-sm text-gray-600">
                     <p>총 {loginHistory.length}개의 로그인 기록</p>
                   </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 제보 게시판 탭 */}
+        {activeTab === 'feedbacks' && (
+          <div>
+            <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-gray-800">📋 제보 게시판</h2>
+                <button
+                  onClick={loadFeedbacks}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                >
+                  🔄 새로고침
+                </button>
+              </div>
+
+              {/* 하위 탭 */}
+              <div className="flex gap-2 mb-4 border-b">
+                <button
+                  onClick={() => setFeedbackSubTab('bug')}
+                  className={`px-4 py-2 font-semibold transition-colors ${
+                    feedbackSubTab === 'bug'
+                      ? 'border-b-2 border-red-500 text-red-600'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  오류 제보 ({getFeedbacks().filter(f => f.type === 'bug').length})
+                </button>
+                <button
+                  onClick={() => setFeedbackSubTab('suggestion')}
+                  className={`px-4 py-2 font-semibold transition-colors ${
+                    feedbackSubTab === 'suggestion'
+                      ? 'border-b-2 border-blue-500 text-blue-600'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  건의사항 ({getFeedbacks().filter(f => f.type === 'suggestion').length})
+                </button>
+                <button
+                  onClick={() => setFeedbackSubTab('question')}
+                  className={`px-4 py-2 font-semibold transition-colors ${
+                    feedbackSubTab === 'question'
+                      ? 'border-b-2 border-green-500 text-green-600'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  문의사항 ({getFeedbacks().filter(f => f.type === 'question').length})
+                </button>
+              </div>
+
+              {feedbacks.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  <p className="text-lg">등록된 제보가 없습니다.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {feedbacks.map((feedback) => (
+                    <div
+                      key={feedback.id}
+                      className="bg-gray-50 rounded-lg p-4 border border-gray-200"
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                            feedback.type === 'bug' ? 'bg-red-100 text-red-800' :
+                            feedback.type === 'suggestion' ? 'bg-blue-100 text-blue-800' :
+                            feedback.type === 'question' ? 'bg-green-100 text-green-800' :
+                            'bg-gray-100 text-gray-800'
+                          }`}>
+                            {feedback.type === 'bug' ? '오류 제보' :
+                             feedback.type === 'suggestion' ? '건의사항' :
+                             feedback.type === 'question' ? '문의사항' : '기타'}
+                          </span>
+                          <span className="font-semibold text-gray-800">{feedback.author}</span>
+                          {feedback.userId && (
+                            <span className="text-xs text-gray-500">(ID: {feedback.userId})</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-500">
+                            {new Date(feedback.timestamp).toLocaleString('ko-KR')}
+                          </span>
+                          <button
+                            onClick={() => {
+                              if (window.confirm('이 제보를 삭제하시겠습니까?')) {
+                                deleteFeedback(feedback.id);
+                                loadFeedbacks();
+                              }
+                            }}
+                            className="text-red-500 hover:text-red-700 text-sm px-2 py-1"
+                            title="삭제"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                      {feedback.question && (
+                        <div className="mb-3 p-3 bg-blue-50 rounded border border-blue-200">
+                          <div className="text-sm font-semibold text-blue-800 mb-2">
+                            📋 문제 {feedback.questionId}
+                          </div>
+                          <div className="text-sm text-gray-700">
+                            <LatexRenderer text={feedback.question.question} />
+                          </div>
+                        </div>
+                      )}
+                      <p className="text-gray-700 whitespace-pre-wrap">{feedback.content}</p>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
