@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getMemberByName, setCurrentUser, getCurrentExamSession, clearCurrentExamSession, saveCurrentExamSession, getMembers, initializeData, addLoginHistory } from '../services/storage';
+import { saveLoginHistory } from '../services/supabaseService';
 
 interface LoginProps {
   onLoginSuccess: () => void;
@@ -91,8 +92,19 @@ export default function Login({ onLoginSuccess, onGuestMode, onResumeExam }: Log
     // 로그인 기록 저장 (실패해도 로그인은 진행)
     const historySuccess = addLoginHistory(member.id, member.name);
     if (!historySuccess) {
-      console.warn('⚠️ 로그인 기록 저장 실패 (로그인은 정상 진행)');
+      console.warn('⚠️ 로컬 로그인 기록 저장 실패');
     }
+
+    // Supabase에 로그인 기록 저장 (비동기, 실패해도 무시)
+    saveLoginHistory(member.id, member.name).then(success => {
+      if (success) {
+        console.log('✅ Supabase 로그인 기록 저장 성공');
+      } else {
+        console.warn('⚠️ Supabase 로그인 기록 저장 실패');
+      }
+    }).catch(err => {
+      console.warn('⚠️ Supabase 로그인 기록 저장 오류:', err);
+    });
 
     // 이전 시험 기록이 있는지 확인 (현재 사용자의 세션만 확인)
     const currentSession = getCurrentExamSession();

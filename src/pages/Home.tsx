@@ -12,15 +12,13 @@ import {
   initializeData,
   clearWrongAnswers,
   clearStatistics,
-  saveQuestions,
 } from '../services/storage';
 import type { ExamSession } from '../types';
-import { getExamConfig } from '../services/examConfigService';
-import { selectBalancedQuestionsByWeight, selectCategoryQuestionsByWeight } from '../services/weightedRandomService';
 import {
-  fetchQuestionsFromSupabase,
-  getSupabaseQuestionCount,
-} from '../services/supabaseMigration';
+  fetchRandom60Questions,
+  fetchRandomCategoryQuestions,
+  getCategoryCounts,
+} from '../services/supabaseService';
 
 interface HomeProps {
   onStartExam: (questions: Question[], mode: 'timedRandom' | 'untimedRandom' | 'category' | 'wrong') => void;
@@ -34,7 +32,6 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
   const [loading, setLoading] = useState<boolean>(false);
   const [hasPreviousSession, setHasPreviousSession] = useState<boolean>(false);
   const [previousSession, setPreviousSession] = useState<ExamSession | null>(null);
-  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(false);
   const [loadingProgress, setLoadingProgress] = useState<string>('');
 
   const currentUserId = getCurrentUser();
@@ -53,96 +50,40 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
     total: 0,
   });
 
-  // 문제 수 로드 함수
-  const loadQuestionCounts = () => {
-    const allQuestions = getQuestions();
-    const 전기이론 = allQuestions.filter(q => q.category === '전기이론').length;
-    const 전기기기 = allQuestions.filter(q => q.category === '전기기기').length;
-    const 전기설비 = allQuestions.filter(q => q.category === '전기설비').length;
-    const total = 전기이론 + 전기기기 + 전기설비;
-
-    setQuestionCounts({
-      전기이론,
-      전기기기,
-      전기설비,
-      total,
-    });
-
-    console.log(`📊 문제 현황: 전기이론 ${전기이론}개, 전기기기 ${전기기기}개, 전기설비 ${전기설비}개 (총 ${total}개)`);
-    return total;
-  };
-
-  // Supabase 서버 문제 수 확인 함수
-  const checkServerQuestionCount = async (): Promise<number> => {
+  // 문제 수 로드 함수 (서버에서 직접 COUNT)
+  const loadQuestionCounts = async () => {
     try {
-      const count = await getSupabaseQuestionCount();
-      return count;
+      const counts = await getCategoryCounts();
+      setQuestionCounts(counts);
+      console.log(`📊 문제 현황 (서버): 전기이론 ${counts.전기이론}개, 전기기기 ${counts.전기기기}개, 전기설비 ${counts.전기설비}개 (총 ${counts.total}개)`);
+      return counts.total;
     } catch (error) {
-      console.warn('Supabase 서버 문제 수 확인 실패:', error);
-    }
-    return 0;
-  };
+      console.error('서버 문제 수 로드 실패:', error);
+      // 실패 시 로컬 캐시에서 로드
+      const allQuestions = getQuestions();
+      const 전기이론 = allQuestions.filter(q => q.category === '전기이론').length;
+      const 전기기기 = allQuestions.filter(q => q.category === '전기기기').length;
+      const 전기설비 = allQuestions.filter(q => q.category === '전기설비').length;
+      const total = 전기이론 + 전기기기 + 전기설비;
 
-  // Supabase에서 데이터 로딩 함수
-  const loadDataFromSupabase = async () => {
-    setIsInitialLoading(true);
-    setLoadingProgress('Supabase 데이터베이스에 연결 중...');
+      setQuestionCounts({
+        전기이론,
+        전기기기,
+        전기설비,
+        total,
+      });
 
-    try {
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      setLoadingProgress('Supabase에서 문제 데이터를 다운로드하는 중...\n잠시만 기다려주세요.');
-
-      console.log('📂 Supabase에서 문제 로드 시도...');
-      const loadedQuestions = await fetchQuestionsFromSupabase();
-
-      if (loadedQuestions.length > 0) {
-        setLoadingProgress(`${loadedQuestions.length}개의 문제를 로컬에 캐싱하는 중...`);
-        await new Promise(resolve => setTimeout(resolve, 300));
-
-        // localStorage에 캐시 저장
-        saveQuestions(loadedQuestions);
-        loadQuestionCounts();
-
-        setLoadingProgress(`✅ ${loadedQuestions.length}개의 문제를 성공적으로 로드했습니다!`);
-        await new Promise(resolve => setTimeout(resolve, 1500));
-
-        console.log(`✅ Supabase에서 로드 완료: ${loadedQuestions.length}개 문제`);
-      } else {
-        throw new Error('Supabase에 문제 데이터가 없습니다.');
-      }
-    } catch (error) {
-      console.error('Supabase 로드 실패:', error);
-      setLoadingProgress(`⚠️ Supabase 데이터 로드에 실패했습니다.\n\n네트워크 연결을 확인하거나\n관리자에게 문의해주세요.`);
-      await new Promise(resolve => setTimeout(resolve, 3000));
-    } finally {
-      setIsInitialLoading(false);
-      setLoadingProgress('');
+      console.log(`📊 문제 현황 (로컬 캐시): 전기이론 ${전기이론}개, 전기기기 ${전기기기}개, 전기설비 ${전기설비}개 (총 ${total}개)`);
+      return total;
     }
   };
 
   // 초기화 및 문제 현황 표시
   useEffect(() => {
     initializeData();
-    const totalQuestions = loadQuestionCounts();
 
-    // Supabase와 로컬 문제 수를 비교하여 자동 업데이트
-    const checkAndUpdateData = async () => {
-      const serverCount = await checkServerQuestionCount();
-      console.log(`📊 Supabase 문제 수: ${serverCount}개, 로컬 캐시: ${totalQuestions}개`);
-
-      // Supabase 문제 수와 로컬 문제 수가 다르면 자동 다운로드
-      if (serverCount > 0 && serverCount !== totalQuestions) {
-        console.log(`⚠️ Supabase와 로컬 데이터가 다릅니다. 자동으로 동기화를 시작합니다. (${totalQuestions}개 → ${serverCount}개)`);
-        loadDataFromSupabase();
-      } else if (serverCount === 0 && totalQuestions === 0) {
-        console.log('⚠️ Supabase에 데이터가 없습니다. 관리자가 먼저 데이터를 이전해주세요.');
-      } else if (serverCount === 0 && totalQuestions > 0) {
-        console.log('ℹ️ Supabase 연결 실패. 로컬 캐시 데이터를 사용합니다.');
-      }
-    };
-
-    checkAndUpdateData();
+    // 서버에서 문제 수 로드 (더 이상 전체 다운로드 불필요)
+    loadQuestionCounts();
 
     // 이전 세션이 없거나 실전 모의고사 세션일 때 기본값으로 랜덤 60문제 선택
     const existingSession = getCurrentExamSession();
@@ -210,198 +151,55 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
         setPreviousSession(null);
       }
 
-      // 문제 데이터 다시 로드 시도 (모바일에서 localStorage 동기화 문제 대응)
-      initializeData();
-      loadQuestionCounts(); // 문제 수 다시 확인
-      const allQuestions = getQuestions();
-
-      // 디버깅 정보
-      console.log('📊 문제 로드 상태:', {
-        questionsCount: allQuestions.length,
-        localStorageAvailable: typeof Storage !== 'undefined',
-        questionsKey: localStorage.getItem('questions') ? '존재' : '없음',
-        questionsKeyLength: localStorage.getItem('questions')?.length || 0,
-        userAgent: navigator.userAgent,
-        questionCounts: questionCounts,
-      });
-
-      if (allQuestions.length === 0) {
-        // localStorage 상태 확인
-        const hasQuestionsKey = localStorage.getItem('questions') !== null;
-        const questionsData = localStorage.getItem('questions');
-        
-        let errorMessage = '등록된 문제가 없습니다.\n\n';
-        
-        if (!hasQuestionsKey) {
-          errorMessage += '문제 데이터가 저장되어 있지 않습니다.\n';
-        } else if (questionsData) {
-          try {
-            const parsed = JSON.parse(questionsData);
-            if (Array.isArray(parsed) && parsed.length === 0) {
-              errorMessage += '문제 데이터는 있지만 비어있습니다.\n\n';
-              errorMessage += '가능한 원인:\n';
-              errorMessage += '1. 관리자 페이지에서 문제를 추가하지 않았습니다.\n';
-              errorMessage += '2. PC와 모바일이 다른 브라우저/도메인을 사용합니다.\n';
-              errorMessage += '3. 시크릿 모드에서 localStorage가 제한되었습니다.\n\n';
-              errorMessage += '해결 방법:\n';
-              errorMessage += '1. 관리자 페이지에서 문제를 추가한 후 저장하세요.\n';
-              errorMessage += '2. 모바일에서 페이지를 새로고침하세요.\n';
-              errorMessage += '3. 같은 도메인/포트를 사용하는지 확인하세요.';
-            } else {
-              errorMessage += `문제 데이터 파싱 오류가 발생했습니다.\n`;
-            }
-          } catch (e) {
-            errorMessage += `문제 데이터 파싱 오류: ${e}\n`;
-          }
-        }
-        
-        errorMessage += '\n\n관리자 페이지에서 문제를 추가해주세요.';
-        
-        // TSV 파일 또는 Google Sheets 동기화 시도 옵션 제공
-        const shouldTrySync = confirm(
-          errorMessage + 
-          '\n\n로컬 TSV 파일 또는 Google Sheets에서 문제를 가져오시겠습니까?'
-        );
-        
-        if (shouldTrySync) {
-          try {
-            setLoading(true);
-            
-            // 먼저 TSV 파일에서 필요한 문제만 선택해서 로드 시도
-            console.log('📂 TSV 파일에서 문제 로드 시도 중...');
-            try {
-              const response = await fetch('/converted_questions.tsv');
-              if (response.ok) {
-                const text = await response.text();
-                const lines = text.split('\n').filter(line => line.trim());
-                const dataLines = lines.slice(1); // 헤더 제외
-                
-                // 모든 문제 파싱
-                const allTsvQuestions: Question[] = dataLines.map(line => {
-                  const columns = line.split('\t');
-                  return {
-                    id: parseInt(columns[0]) || 0,
-                    category: columns[1] || '',
-                    question: columns[2] || '',
-                    option1: columns[3] || '',
-                    option2: columns[4] || '',
-                    option3: columns[5] || '',
-                    option4: columns[6] || '',
-                    answer: parseInt(columns[7]) || 1,
-                    explanation: columns[8] || '',
-                    imageUrl: columns[9] || undefined,
-                  };
-                }).filter(q => q.id > 0 && q.question.length > 0);
-                
-                if (allTsvQuestions.length > 0) {
-                  // 필요한 60문제만 선택 (가중치 기반)
-                  const examConfig = getExamConfig();
-                  const { selectBalancedQuestionsByWeight } = await import('../services/weightedRandomService');
-                  
-                  // 시험 모드에 따라 필요한 문제 수 결정
-                  const neededCount = (mode === 'timedRandom' || mode === 'untimedRandom') ? 60 : 20;
-                  
-                  // 필요한 문제만 선택
-                  const selectedQuestions = selectBalancedQuestionsByWeight(allTsvQuestions, neededCount, examConfig);
-                  
-                  // 선택된 문제만 localStorage에 저장 (빠른 로딩)
-                  saveQuestions(selectedQuestions);
-                  loadQuestionCounts();
-                  alert(`✅ TSV 파일에서 ${selectedQuestions.length}개 문제를 선택하여 가져왔습니다.\n\n다시 시험 시작 버튼을 클릭해주세요.`);
-                  setLoading(false);
-                  return;
-                }
-              }
-            } catch (tsvError) {
-              console.warn('TSV 파일 로드 실패:', tsvError);
-            }
-            
-            // TSV 실패 시 Google Sheets 시도
-            console.log('🌐 Google Sheets에서 문제 로드 시도 중...');
-            const { getAllQuestionsFromSheets } = await import('../services/googleSheetsService');
-            const allSheetsQuestions = await getAllQuestionsFromSheets(['questions', '전기이론', '전기기기', '전기설비', '기타']);
-            
-            if (allSheetsQuestions && allSheetsQuestions.length > 0) {
-              // 필요한 60문제만 선택 (가중치 기반)
-              const examConfig = getExamConfig();
-              const { selectBalancedQuestionsByWeight } = await import('../services/weightedRandomService');
-              
-              // 시험 모드에 따라 필요한 문제 수 결정
-              const neededCount = (mode === 'timedRandom' || mode === 'untimedRandom') ? 60 : 20;
-              
-              // 필요한 문제만 선택
-              const selectedQuestions = selectBalancedQuestionsByWeight(allSheetsQuestions, neededCount, examConfig);
-              
-              // 선택된 문제만 localStorage에 저장 (빠른 로딩)
-              saveQuestions(selectedQuestions);
-              loadQuestionCounts();
-              alert(`✅ Google Sheets에서 ${selectedQuestions.length}개 문제를 선택하여 가져왔습니다.\n\n다시 시험 시작 버튼을 클릭해주세요.`);
-              setLoading(false);
-              return;
-            } else {
-              alert('⚠️ TSV 파일과 Google Sheets에서 문제를 가져올 수 없습니다.\n\n관리자 페이지에서 문제를 추가해주세요.');
-            }
-          } catch (syncError) {
-            console.error('문제 로드 실패:', syncError);
-            alert('❌ 문제 로드에 실패했습니다.\n\n관리자 페이지에서 문제를 추가해주세요.');
-          }
-        }
-        
-        setLoading(false);
-        return;
-      }
-
       let examQuestions: Question[] = [];
 
-      // 출제 설정 불러오기
-      const examConfig = getExamConfig();
-      console.log('📋 출제 설정:', examConfig);
-
-      // 모드별 문제 선택
+      // 모드별 문제 선택 (서버에서 직접 가져오기)
       if (mode === 'timedRandom' || mode === 'untimedRandom') {
-        // 랜덤출제 모드: 가중치 기반 균등 배분 (총 60문제)
+        // 랜덤출제 모드: 서버에서 직접 60문제 가져오기
         const modeLabel = mode === 'timedRandom' ? '실전 모의고사' : '랜덤 60문제';
-        console.log(`🎲 ${modeLabel}: 가중치 기반 균등 배분`);
-        examQuestions = selectBalancedQuestionsByWeight(allQuestions, 60, examConfig);
-        console.log(`✅ 선택된 문제: ${examQuestions.length}개`);
+        console.log(`🎲 ${modeLabel}: 서버에서 직접 60문제 가져오기`);
+
+        setLoadingProgress('서버에서 랜덤 60문제를 가져오는 중...');
+        examQuestions = await fetchRandom60Questions();
+        console.log(`✅ 서버에서 가져온 문제: ${examQuestions.length}개`);
 
         // 문제 수 부족 경고
         if (examQuestions.length < 60) {
-          const categories = ['전기이론', '전기기기', '전기설비'];
-          const categoryDetails = categories
-            .map(cat => `${cat}: ${allQuestions.filter(q => q.category === cat).length}개`)
-            .join(', ');
-
           alert(
             `일부 카테고리에 문제가 부족합니다.\n\n` +
-            `현재 DB 문제 수: ${allQuestions.length}개\n` +
-            `카테고리별: ${categoryDetails}\n\n` +
+            `서버에서 가져온 문제: ${examQuestions.length}개\n\n` +
             `${examQuestions.length}문제로 시작합니다.`
           );
         }
+
+        if (examQuestions.length === 0) {
+          alert('❌ 서버에서 문제를 가져올 수 없습니다.\n\n네트워크 연결을 확인하거나 관리자에게 문의하세요.');
+          setLoading(false);
+          setLoadingProgress('');
+          return;
+        }
       } else if (mode === 'category') {
-        // 카테고리별 모드: 선택한 카테고리에서 가중치 기반 20문제 선택
-        console.log(`📚 카테고리 모드: ${selectedCategory} (가중치 기반)`);
+        // 카테고리별 모드: 서버에서 해당 카테고리 20문제 가져오기
+        console.log(`📚 카테고리 모드: ${selectedCategory} (서버에서 직접 가져오기)`);
 
-        const categoryQuestions = allQuestions.filter(q => q.category === selectedCategory);
+        setLoadingProgress(`${selectedCategory}에서 20문제를 가져오는 중...`);
+        examQuestions = await fetchRandomCategoryQuestions(selectedCategory, 20);
+        console.log(`✅ 서버에서 가져온 문제: ${examQuestions.length}개`);
 
-        if (categoryQuestions.length === 0) {
+        if (examQuestions.length === 0) {
           alert(`${selectedCategory} 카테고리에 문제가 없습니다.`);
           setLoading(false);
+          setLoadingProgress('');
           return;
         }
 
-        // 가중치 기반 선택
-        examQuestions = selectCategoryQuestionsByWeight(allQuestions, selectedCategory, 20, examConfig);
-        console.log(`✅ 선택된 문제: ${examQuestions.length}개`);
-
         if (examQuestions.length < 20) {
           alert(
-            `${selectedCategory} 카테고리에 문제가 ${categoryQuestions.length}개뿐입니다.\n${examQuestions.length}문제로 시작합니다.`
+            `${selectedCategory} 카테고리에 문제가 ${examQuestions.length}개뿐입니다.\n${examQuestions.length}문제로 시작합니다.`
           );
         }
       } else if (mode === 'wrong') {
-        // 오답노트 모드: 연속 3회 정답 미만인 문제만 선택 (최대 20문제)
+        // 오답노트 모드: 로컬 오답 데이터 사용 (연속 3회 정답 미만인 문제만)
         const wrongAnswers = getWrongAnswers();
         const eligibleWrong = wrongAnswers.filter(wa => wa.correctStreak < 3);
 
@@ -421,6 +219,8 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
 
         examQuestions = wrongQuestions;
       }
+
+      setLoadingProgress('');
 
       const currentUserId = getCurrentUser();
       // 세션 저장
@@ -459,9 +259,10 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
       }
     } catch (error) {
       console.error('시험 시작 오류:', error);
-      alert('시험을 시작하는 중 오류가 발생했습니다.');
+      alert('시험을 시작하는 중 오류가 발생했습니다.\n\n네트워크 연결을 확인해주세요.');
     } finally {
       setLoading(false);
+      setLoadingProgress('');
     }
   };
 
@@ -535,28 +336,6 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      {/* 초기 데이터 로딩 오버레이 */}
-      {isInitialLoading && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4 text-center">
-            <div className="mb-6">
-              <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">📚 문제 데이터 로딩 중</h2>
-              <p className="text-gray-600 mb-4">처음 접속 시 문제 데이터를 다운로드합니다.</p>
-            </div>
-            <div className="bg-blue-50 rounded-lg p-4 mb-4">
-              <p className="text-blue-800 whitespace-pre-line font-medium">
-                {loadingProgress}
-              </p>
-            </div>
-            <div className="text-sm text-gray-500">
-              <p>⏱️ 약 30초 정도 소요될 수 있습니다.</p>
-              <p className="mt-1">이 작업은 처음 한 번만 실행됩니다.</p>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full">
         {/* 헤더 */}
         <div className="text-center mb-8">
@@ -773,7 +552,7 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
               disabled={loading}
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-bold py-4 px-6 rounded-lg transition-colors duration-200 text-lg"
             >
-              {loading ? '문제 불러오는 중...' : '🚀 시험 시작'}
+              {loading ? (loadingProgress || '서버에서 문제 불러오는 중...') : '🚀 시험 시작'}
             </button>
 
             {/* 학습 도구 버튼 */}
