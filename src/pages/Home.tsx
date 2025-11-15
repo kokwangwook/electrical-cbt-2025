@@ -16,7 +16,7 @@ import {
 import type { ExamSession } from '../types';
 import {
   fetchRandom60Questions,
-  fetchRandomCategoryQuestions,
+  fetchRandomQuestions,
   getCategoryCounts,
 } from '../services/supabaseService';
 
@@ -183,7 +183,7 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
         console.log(`📚 카테고리 모드: ${selectedCategory} (서버에서 직접 가져오기)`);
 
         setLoadingProgress(`${selectedCategory}에서 20문제를 가져오는 중...`);
-        examQuestions = await fetchRandomCategoryQuestions(selectedCategory, 20);
+        examQuestions = await fetchRandomQuestions(selectedCategory, 20);
         console.log(`✅ 서버에서 가져온 문제: ${examQuestions.length}개`);
 
         if (examQuestions.length === 0) {
