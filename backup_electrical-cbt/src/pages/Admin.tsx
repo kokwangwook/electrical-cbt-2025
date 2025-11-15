@@ -1,0 +1,2760 @@
+import { useState, useEffect } from 'react';
+import type { Question, Member, ExamConfig } from '../types';
+import {
+  getQuestions,
+  addQuestion,
+  updateQuestion,
+  deleteQuestion,
+  getMembers,
+  addMember,
+  updateMember,
+  deleteMember,
+  exportData,
+  importData,
+  saveQuestions,
+  deleteAllData,
+  downloadBackup,
+  restoreFromFile,
+  getLoginHistory,
+  deleteLoginHistory,
+  clearLoginHistory,
+  clearAllCaches,
+} from '../services/storage';
+import type { LoginHistory } from '../types';
+import {
+  getAllQuestionsFromSheets,
+  bulkAddQuestionsToSheets,
+} from '../services/googleSheetsService';
+import LatexRenderer from '../components/LatexRenderer';
+import { getStandardsByCategory, getStandardTitle, matchStandardByKeywords, matchDetailItemByKeywords, getDetailItemsByStandard } from '../data/examStandards';
+import StandardStatistics from '../components/StandardStatistics';
+import { getExamConfig, saveExamConfig, resetExamConfig } from '../services/examConfigService';
+
+export default function Admin() {
+  // 인증
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [password, setPassword] = useState('');
+  const ADMIN_PASSWORD = 'admin2024';
+
+  // 탭
+  const [activeTab, setActiveTab] = useState<'questions' | 'members' | 'sync' | 'statistics' | 'config' | 'login-history'>('questions');
+
+  // 출제 설정
+  const [examConfig, setExamConfig] = useState<ExamConfig>(getExamConfig());
+
+  // 문제 관리
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>('전체');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [selectedQuestions, setSelectedQuestions] = useState<Set<number>>(new Set());
+  const [currentPage, setCurrentPage] = useState(1);
+  const questionsPerPage = 100;
+  const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
+  const [previewQuestion, setPreviewQuestion] = useState<Question | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [showStandardApplyModal, setShowStandardApplyModal] = useState(false);
+  const [standardApplyMode, setStandardApplyMode] = useState<'random' | 'manual'>('random');
+  const [selectedStandard, setSelectedStandard] = useState<string>('');
+  const [selectedDetailItem, setSelectedDetailItem] = useState<string>('');
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
+
+  // 회원 관리
+  const [members, setMembers] = useState<Member[]>([]);
+  const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [showEditMemberModal, setShowEditMemberModal] = useState(false);
+
+  // 로그인 기록
+  const [loginHistory, setLoginHistory] = useState<LoginHistory[]>([]);
+
+  // 동기화
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string>('');
+  const [autoApplyStandard, setAutoApplyStandard] = useState<boolean>(true); // 자동 출제기준 적용 체크박스
+
+  // 새 문제 폼
+  const [newQuestion, setNewQuestion] = useState({
+    category: '전기이론',
+    standard: undefined as string | undefined,
+    detailItem: undefined as string | undefined,
+    question: '',
+    option1: '',
+    option2: '',
+    option3: '',
+    option4: '',
+    answer: 1,
+    explanation: '',
+    imageUrl: '',
+    weight: undefined as number | undefined,
+    source: undefined as string | undefined,
+  });
+
+  // 새 회원 폼
+  const [newMember, setNewMember] = useState({
+    name: '',
+    phone: '',
+    address: '',
+    memo: '',
+  });
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadQuestions();
+      loadMembers();
+      loadLoginHistory();
+    }
+  }, [isAuthenticated]);
+
+  const handleLogin = () => {
+    if (password === ADMIN_PASSWORD) {
+      setIsAuthenticated(true);
+    } else {
+      alert('비밀번호가 틀렸습니다.');
+    }
+  };
+
+  const loadQuestions = () => {
+    const allQuestions = getQuestions();
+    // 최신 문제가 맨 위로 오도록 ID 내림차순 정렬
+    const sortedQuestions = [...allQuestions].sort((a, b) => b.id - a.id);
+    setQuestions(sortedQuestions);
+  };
+
+  const loadMembers = () => {
+    const allMembers = getMembers();
+    setMembers(allMembers);
+  };
+
+  const loadLoginHistory = () => {
+    const history = getLoginHistory();
+    setLoginHistory(history);
+  };
+
+  // 문제 현황 계산
+  const questionStats = {
+    전체: questions.length,
+    전기이론: questions.filter(q => q.category === '전기이론').length,
+    전기기기: questions.filter(q => q.category === '전기기기').length,
+    전기설비: questions.filter(q => q.category === '전기설비').length,
+    기타: questions.filter(q => !['전기이론', '전기기기', '전기설비'].includes(q.category)).length,
+  };
+
+  // 문제 필터링 및 정렬 (ID 내림차순 - 최신 문제가 위로)
+  const filteredQuestions = (
+    selectedCategory === '전체'
+      ? questions
+      : selectedCategory === '기타'
+      ? questions.filter(q => !['전기이론', '전기기기', '전기설비'].includes(q.category))
+      : questions.filter(q => q.category === selectedCategory)
+  )
+    .filter(q => {
+      // 검색어가 없으면 모든 문제 표시
+      if (!searchQuery.trim()) return true;
+      
+      const query = searchQuery.toLowerCase().trim();
+      
+      // 문제 ID 검색
+      if (q.id.toString().includes(query)) return true;
+      
+      // 문제 내용 검색 (질문, 선택지, 해설)
+      const searchableText = [
+        q.question || '',
+        q.option1 || '',
+        q.option2 || '',
+        q.option3 || '',
+        q.option4 || '',
+        q.explanation || '',
+        q.category || '',
+      ].join(' ').toLowerCase();
+      
+      return searchableText.includes(query);
+    })
+    .sort((a, b) => b.id - a.id); // ID 내림차순 정렬
+
+  // 페이지네이션
+  const totalPages = Math.ceil(filteredQuestions.length / questionsPerPage);
+  const startIndex = (currentPage - 1) * questionsPerPage;
+  const endIndex = startIndex + questionsPerPage;
+  const currentQuestions = filteredQuestions.slice(startIndex, endIndex);
+
+  // 문제 추가
+  const handleAddQuestion = () => {
+    if (!newQuestion.question || !newQuestion.option1) {
+      alert('필수 항목을 입력해주세요.');
+      return;
+    }
+    
+    // 출제기준이 없고 자동 적용이 체크되어 있으면 자동으로 적용
+    let questionToAdd = { ...newQuestion };
+    if (!questionToAdd.standard && autoApplyStandard) {
+      // 키워드 기반 자동 매칭 시도
+      let matchedStandard = matchStandardByKeywords(questionToAdd);
+      
+      // 키워드 매칭이 실패하면 랜덤하게 적용
+      if (!matchedStandard) {
+        const standards = getStandardsByCategory(questionToAdd.category);
+        if (standards.length > 0) {
+          matchedStandard = standards[Math.floor(Math.random() * standards.length)];
+        }
+      }
+      
+      if (matchedStandard) {
+        questionToAdd.standard = matchedStandard;
+        
+        // 출제기준이 할당된 후 세부항목 자동 할당
+        if (autoApplyStandard && !questionToAdd.detailItem) {
+          const matchedDetailItem = matchDetailItemByKeywords(questionToAdd);
+          if (matchedDetailItem) {
+            questionToAdd.detailItem = matchedDetailItem;
+          }
+        }
+      }
+    } else if (questionToAdd.standard && !questionToAdd.detailItem && autoApplyStandard) {
+      // 출제기준은 있지만 세부항목이 없는 경우 세부항목 자동 할당
+      const matchedDetailItem = matchDetailItemByKeywords(questionToAdd);
+      if (matchedDetailItem) {
+        questionToAdd.detailItem = matchedDetailItem;
+      }
+    }
+    
+    addQuestion(questionToAdd);
+    loadQuestions();
+    setShowAddModal(false);
+    resetNewQuestion();
+    alert('문제가 추가되었습니다.');
+  };
+
+  // 문제 수정
+  const handleUpdateQuestion = () => {
+    if (!editingQuestion) return;
+    
+    // 출제기준이 없고 자동 적용이 체크되어 있으면 자동으로 적용
+    let questionToUpdate = { ...editingQuestion };
+    if (!questionToUpdate.standard && autoApplyStandard) {
+      // 키워드 기반 자동 매칭 시도
+      let matchedStandard = matchStandardByKeywords(questionToUpdate);
+      
+      // 키워드 매칭이 실패하면 랜덤하게 적용
+      if (!matchedStandard) {
+        const standards = getStandardsByCategory(questionToUpdate.category);
+        if (standards.length > 0) {
+          matchedStandard = standards[Math.floor(Math.random() * standards.length)];
+        }
+      }
+      
+      if (matchedStandard) {
+        questionToUpdate.standard = matchedStandard;
+        
+        // 출제기준이 할당된 후 세부항목 자동 할당
+        if (autoApplyStandard && !questionToUpdate.detailItem) {
+          const matchedDetailItem = matchDetailItemByKeywords(questionToUpdate);
+          if (matchedDetailItem) {
+            questionToUpdate.detailItem = matchedDetailItem;
+          }
+        }
+      }
+    } else if (questionToUpdate.standard && !questionToUpdate.detailItem && autoApplyStandard) {
+      // 출제기준은 있지만 세부항목이 없는 경우 세부항목 자동 할당
+      const matchedDetailItem = matchDetailItemByKeywords(questionToUpdate);
+      if (matchedDetailItem) {
+        questionToUpdate.detailItem = matchedDetailItem;
+      }
+    }
+    
+    updateQuestion(questionToUpdate);
+    loadQuestions();
+    setShowEditModal(false);
+    setEditingQuestion(null);
+    alert('문제가 수정되었습니다.');
+  };
+
+  // 문제 삭제
+  const handleDeleteQuestion = (id: number) => {
+    if (window.confirm('이 문제를 삭제하시겠습니까?')) {
+      deleteQuestion(id);
+      loadQuestions();
+    }
+  };
+
+  // 선택 문제 일괄 삭제
+  const handleDeleteSelected = () => {
+    if (selectedQuestions.size === 0) {
+      alert('삭제할 문제를 선택해주세요.');
+      return;
+    }
+    if (window.confirm(`선택한 ${selectedQuestions.size}개의 문제를 삭제하시겠습니까?`)) {
+      selectedQuestions.forEach(id => deleteQuestion(id));
+      setSelectedQuestions(new Set());
+      loadQuestions();
+      alert('선택한 문제가 삭제되었습니다.');
+    }
+  };
+
+  // 출제기준 랜덤 적용
+  const handleRandomApplyStandard = () => {
+    if (selectedQuestions.size === 0) {
+      alert('선택한 문제가 없습니다.');
+      return;
+    }
+
+    const selectedCount = selectedQuestions.size; // 미리 저장
+
+    const updatedQuestions = questions.map(q => {
+      if (selectedQuestions.has(q.id)) {
+        // 카테고리별 출제기준 목록 가져오기
+        const standards = getStandardsByCategory(q.category);
+        if (standards.length > 0) {
+          // 랜덤하게 출제기준 선택
+          const randomStandard = standards[Math.floor(Math.random() * standards.length)];
+          const updatedQuestion: any = { ...q, standard: randomStandard };
+          // 세부항목 자동 할당 시도
+          if (autoApplyStandard) {
+            const matchedDetailItem = matchDetailItemByKeywords(updatedQuestion);
+            if (matchedDetailItem) {
+              updatedQuestion.detailItem = matchedDetailItem;
+            }
+          }
+          return updatedQuestion;
+        }
+      }
+      return q;
+    });
+
+    try {
+      saveQuestions(updatedQuestions);
+      loadQuestions();
+      setSelectedQuestions(new Set());
+      setShowStandardApplyModal(false);
+      alert(`✅ ${selectedCount}개 문제에 출제기준이 랜덤하게 적용되었습니다.`);
+    } catch (error) {
+      console.error('❌ 출제기준 적용 실패:', error);
+      alert('❌ 출제기준 적용에 실패했습니다. 다시 시도해주세요.');
+    }
+  };
+
+  // 출제기준 직접 적용
+  const handleManualApplyStandard = () => {
+    if (selectedQuestions.size === 0) {
+      alert('선택한 문제가 없습니다.');
+      return;
+    }
+
+    if (!selectedStandard) {
+      alert('출제기준을 선택해주세요.');
+      return;
+    }
+
+    const selectedQuestionsList = questions.filter(q => selectedQuestions.has(q.id));
+    
+    // 선택한 문제들의 카테고리 확인
+    const categories = new Set(selectedQuestionsList.map(q => q.category));
+    
+    // 여러 카테고리가 섞여있는 경우 확인
+    if (categories.size > 1) {
+      const allStandards = Array.from(categories).flatMap(cat => getStandardsByCategory(cat));
+      if (!allStandards.includes(selectedStandard)) {
+        alert('선택한 출제기준이 일부 문제의 카테고리와 일치하지 않습니다.');
+        return;
+      }
+    } else {
+      // 단일 카테고리
+      const category = Array.from(categories)[0] || '전기이론';
+      const standards = getStandardsByCategory(category);
+      if (!standards.includes(selectedStandard)) {
+        alert('선택한 출제기준이 문제의 카테고리와 일치하지 않습니다.');
+        return;
+      }
+    }
+
+    const updatedQuestions = questions.map(q => {
+      if (selectedQuestions.has(q.id)) {
+        // 카테고리 확인
+        const qStandards = getStandardsByCategory(q.category);
+        if (qStandards.includes(selectedStandard)) {
+          const updatedQuestion: any = { ...q, standard: selectedStandard };
+          // 세부항목도 선택되어 있으면 적용
+          if (selectedDetailItem) {
+            updatedQuestion.detailItem = selectedDetailItem;
+          } else if (autoApplyStandard) {
+            // 자동 적용 체크박스가 켜져 있으면 키워드 기반 자동 할당 시도
+            const matchedDetailItem = matchDetailItemByKeywords(updatedQuestion);
+            if (matchedDetailItem) {
+              updatedQuestion.detailItem = matchedDetailItem;
+            }
+          }
+          return updatedQuestion;
+        }
+      }
+      return q;
+    });
+
+    const selectedCount = selectedQuestions.size; // 미리 저장
+    const appliedStandard = selectedStandard; // 미리 저장
+
+    try {
+      saveQuestions(updatedQuestions);
+      loadQuestions();
+      setSelectedQuestions(new Set());
+      setShowStandardApplyModal(false);
+      setSelectedStandard('');
+      setSelectedDetailItem('');
+      const detailItemMsg = selectedDetailItem ? ` (세부항목: ${selectedDetailItem})` : '';
+      alert(`✅ ${selectedCount}개 문제에 출제기준 "${appliedStandard} - ${getStandardTitle(appliedStandard)}"${detailItemMsg}이 적용되었습니다.`);
+    } catch (error) {
+      console.error('❌ 출제기준 적용 실패:', error);
+      alert('❌ 출제기준 적용에 실패했습니다. 다시 시도해주세요.');
+    }
+  };
+
+  // 미리보기
+  const handlePreview = (question: Question) => {
+    setPreviewQuestion(question);
+    setShowPreviewModal(true);
+  };
+
+  // 미리보기에서 수정으로 이동
+  const handleEditFromPreview = () => {
+    if (previewQuestion) {
+      setEditingQuestion(previewQuestion);
+      setShowPreviewModal(false);
+      setShowEditModal(true);
+    }
+  };
+
+  // 체크박스 처리
+  const handleCheckboxChange = (id: number, checked: boolean) => {
+    const newSelected = new Set(selectedQuestions);
+    if (checked) {
+      newSelected.add(id);
+    } else {
+      newSelected.delete(id);
+    }
+    setSelectedQuestions(newSelected);
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const allIds = new Set(currentQuestions.map(q => q.id));
+      setSelectedQuestions(allIds);
+    } else {
+      setSelectedQuestions(new Set());
+    }
+  };
+
+  // 회원 추가
+  const handleAddMember = () => {
+    if (!newMember.name || !newMember.name.trim()) {
+      alert('이름을 입력해주세요.');
+      return;
+    }
+    try {
+      addMember(newMember);
+      loadMembers();
+      setShowAddMemberModal(false);
+      resetNewMember();
+      alert('회원이 추가되었습니다.');
+    } catch (error) {
+      console.error('회원 추가 실패:', error);
+      alert(error instanceof Error ? error.message : '회원 추가에 실패했습니다.');
+    }
+  };
+
+  // 회원 수정
+  const handleUpdateMember = () => {
+    if (!editingMember) return;
+    updateMember(editingMember);
+    loadMembers();
+    setShowEditMemberModal(false);
+    setEditingMember(null);
+    alert('회원 정보가 수정되었습니다.');
+  };
+
+  // 회원 삭제
+  const handleDeleteMember = (id: number) => {
+    if (window.confirm('이 회원을 삭제하시겠습니까?')) {
+      deleteMember(id);
+      loadMembers();
+    }
+  };
+
+  // 데이터 내보내기
+  const handleExportData = () => {
+    const jsonData = exportData();
+    const blob = new Blob([jsonData], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `electrical-cbt-backup-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    alert('데이터가 내보내기되었습니다.');
+  };
+
+  // 데이터 가져오기
+  const handleImportData = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json';
+    input.onchange = (e: any) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event: any) => {
+          try {
+            importData(event.target.result);
+            loadQuestions();
+            loadMembers();
+            alert('데이터가 가져오기되었습니다.');
+          } catch (error) {
+            alert('데이터 가져오기 실패: ' + error);
+          }
+        };
+        reader.readAsText(file);
+      }
+    };
+    input.click();
+  };
+
+  // 시트 선택 상태
+  const [selectedSheets, setSelectedSheets] = useState<string[]>(['questions', '전기이론', '전기기기', '전기설비', '기타']);
+  
+  // 시트 선택 토글
+  const toggleSheetSelection = (sheetName: string) => {
+    setSelectedSheets(prev => 
+      prev.includes(sheetName) 
+        ? prev.filter(s => s !== sheetName)
+        : [...prev, sheetName]
+    );
+  };
+  
+  // 전체 선택/해제
+  const toggleAllSheets = (checked: boolean) => {
+    setSelectedSheets(checked ? ['questions', '전기이론', '전기기기', '전기설비', '기타'] : []);
+  };
+
+  // Google Sheets → LocalStorage 동기화
+  const handleSyncFromSheets = async () => {
+    if (selectedSheets.length === 0) {
+      alert('⚠️ 가져올 시트를 최소 1개 이상 선택해주세요.');
+      return;
+    }
+
+    // 동기화 모드 선택
+    const syncMode = window.confirm(
+      '📥 Google Sheets 동기화 모드를 선택하세요:\n\n' +
+      '확인(OK): 병합 모드 - 시트 데이터로 업데이트하되 로컬 전용 문제는 유지\n' +
+      '취소(Cancel): 교체 모드 - 시트 데이터로 완전히 교체 (기존 데이터는 백업됨)\n\n' +
+      '⚠️ 권장: 병합 모드를 사용하세요.'
+    );
+
+    setSyncLoading(true);
+    setSyncMessage(`${selectedSheets.length}개 시트에서 데이터를 가져오는 중... (${syncMode ? '병합' : '교체'} 모드)`);
+
+    try {
+      const sheetsQuestions = await getAllQuestionsFromSheets(selectedSheets);
+
+      if (sheetsQuestions.length === 0) {
+        setSyncMessage('⚠️ Google Sheets에 문제가 없습니다.');
+        setSyncLoading(false);
+        return;
+      }
+
+      // Google Sheets에서 가져온 데이터의 ID 중복 방지 및 정규화
+      const existingQuestions = getQuestions();
+      const existingIds = new Set(existingQuestions.map(q => q.id));
+      
+      // 사용 가능한 ID 찾기 함수
+      const findAvailableId = (preferredId?: number): number => {
+        // 선호하는 ID가 있고 사용 가능하면 사용
+        if (preferredId && !existingIds.has(preferredId)) {
+          return preferredId;
+        }
+        
+        // 1000-1999 범위에서 사용 가능한 ID 찾기
+        let id = preferredId && preferredId >= 1000 && preferredId <= 1999 ? preferredId : 1000;
+        while (id <= 1999 && existingIds.has(id)) {
+          id++;
+        }
+        
+        if (id > 1999) {
+          // 1000-1999 범위가 모두 사용 중이면 가장 큰 ID + 1 사용
+          const maxId = existingQuestions.length > 0 
+            ? Math.max(...existingQuestions.map(q => q.id))
+            : 999;
+          id = maxId + 1;
+          // 새로 할당한 ID도 중복 체크
+          while (existingIds.has(id)) {
+            id++;
+          }
+        }
+        return id;
+      };
+      
+      const processedQuestions = sheetsQuestions.map((q: any) => {
+        const originalId = q.id;
+        
+        // ID가 없거나 중복이면 새 ID 할당
+        if (!originalId || existingIds.has(originalId)) {
+          const newId = findAvailableId(originalId);
+          existingIds.add(newId); // 사용 중인 ID 목록에 추가
+          if (originalId && originalId !== newId) {
+            console.log(`ID 조정: ${originalId} → ${newId} (중복 또는 범위 초과)`);
+          } else if (!originalId) {
+            console.log(`ID 생성: 없음 → ${newId}`);
+          }
+          return { ...q, id: newId };
+        }
+        
+        // 기존 ID가 유효하면 그대로 사용 (원본 유지)
+        existingIds.add(originalId); // 사용 중인 ID 목록에 추가
+        return q;
+      });
+
+      // 출제기준이 없는 문제에 자동으로 출제기준 적용 (동기화 시 항상 적용)
+      let appliedCount = 0;
+      const questionsWithStandards = processedQuestions.map(q => {
+        if (!q.standard) {
+          // 키워드 기반 자동 매칭 시도
+          let matchedStandard = matchStandardByKeywords(q);
+          
+          // 키워드 매칭이 실패하면 랜덤하게 적용
+          if (!matchedStandard) {
+            const standards = getStandardsByCategory(q.category);
+            if (standards.length > 0) {
+              matchedStandard = standards[Math.floor(Math.random() * standards.length)];
+            }
+          }
+          
+          if (matchedStandard) {
+            appliedCount++;
+            const questionWithStandard = { ...q, standard: matchedStandard };
+            
+            // 출제기준이 할당된 후 세부항목 자동 할당
+            if (!questionWithStandard.detailItem) {
+              const matchedDetailItem = matchDetailItemByKeywords(questionWithStandard);
+              if (matchedDetailItem) {
+                questionWithStandard.detailItem = matchedDetailItem;
+              }
+            }
+            
+            return questionWithStandard;
+          }
+        } else if (q.standard && !q.detailItem) {
+          // 출제기준은 있지만 세부항목이 없는 경우 세부항목 자동 할당
+          const matchedDetailItem = matchDetailItemByKeywords(q);
+          if (matchedDetailItem) {
+            return { ...q, detailItem: matchedDetailItem };
+          }
+        }
+        return q;
+      });
+
+      // 기존 데이터 백업 (안전장치)
+      const existingQuestionsForBackup = getQuestions();
+      const backupKey = 'questions_backup_before_sync_' + Date.now();
+      try {
+        if (existingQuestionsForBackup.length > 0) {
+          localStorage.setItem(backupKey, JSON.stringify(existingQuestionsForBackup));
+          console.log(`⚠️ 동기화 전 기존 데이터를 ${backupKey}에 백업했습니다.`);
+        }
+      } catch (e) {
+        console.warn('백업 생성 실패 (계속 진행):', e);
+      }
+
+      // LocalStorage에 저장
+      try {
+        let finalQuestions: Question[];
+
+        if (syncMode) {
+          // 병합 모드: 시트 데이터로 업데이트하되 로컬 전용 문제는 유지
+          const sheetsIdSet = new Set(questionsWithStandards.map((q: Question) => q.id));
+          const localOnlyQuestions = existingQuestions.filter(q => !sheetsIdSet.has(q.id));
+
+          finalQuestions = [...questionsWithStandards, ...localOnlyQuestions];
+
+          console.log(`📊 병합 결과:`);
+          console.log(`  - 시트에서 가져온 문제: ${questionsWithStandards.length}개`);
+          console.log(`  - 로컬 전용 문제 유지: ${localOnlyQuestions.length}개`);
+          console.log(`  - 최종 문제 수: ${finalQuestions.length}개`);
+        } else {
+          // 교체 모드: 시트 데이터로 완전히 교체
+          finalQuestions = questionsWithStandards;
+          console.log(`📊 교체 모드: ${finalQuestions.length}개 문제로 완전 교체`);
+        }
+
+        saveQuestions(finalQuestions);
+        loadQuestions();
+
+        setSyncMessage(
+          `✅ Google Sheets에서 ${processedQuestions.length}개 문제를 가져왔습니다.\n` +
+          (syncMode ? `📌 로컬 전용 문제 ${existingQuestions.length - questionsWithStandards.length}개 유지됨\n` : '') +
+          `📊 최종 문제 수: ${finalQuestions.length}개\n` +
+          (appliedCount > 0 ? `📌 출제기준이 없는 ${appliedCount}개 문제에 출제기준을 자동으로 적용했습니다.` : '')
+        );
+      } catch (error) {
+        console.error('❌ 저장 실패:', error);
+        // 백업 데이터 복원 시도
+        try {
+          const backupData = localStorage.getItem(backupKey);
+          if (backupData) {
+            const backupQuestions = JSON.parse(backupData);
+            saveQuestions(backupQuestions);
+            console.log('⚠️ 백업 데이터로 복원했습니다.');
+          }
+        } catch (e) {
+          console.error('복원 실패:', e);
+        }
+        throw error; // 상위 catch로 전달
+      }
+    } catch (error) {
+      console.error('동기화 오류:', error);
+      setSyncMessage(`❌ 동기화 실패: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  // LocalStorage → Google Sheets 동기화
+  const handleSyncToSheets = async () => {
+    if (selectedSheets.length === 0) {
+      alert('⚠️ 업로드할 시트를 최소 1개 이상 선택해주세요.');
+      return;
+    }
+    
+    const confirmed = window.confirm(
+      `⚠️ LocalStorage의 문제를 ${selectedSheets.length}개 시트로 업로드합니다.\n\n` +
+      `선택된 시트: ${selectedSheets.join(', ')}\n\n` +
+      '주의: 이 작업은 Google Sheets의 기존 데이터 위에 추가합니다.\n' +
+      '중복 데이터가 생길 수 있으니, 필요시 Google Sheets를 먼저 정리하세요.\n\n' +
+      '계속하시겠습니까?'
+    );
+    
+    if (!confirmed) {
+      return;
+    }
+    
+    setSyncLoading(true);
+    setSyncMessage(`${selectedSheets.length}개 시트로 데이터를 업로드하는 중...`);
+
+    try {
+      const localQuestions = getQuestions();
+
+      if (localQuestions.length === 0) {
+        setSyncMessage('⚠️ LocalStorage에 문제가 없습니다.');
+        setSyncLoading(false);
+        return;
+      }
+
+      const success = await bulkAddQuestionsToSheets(localQuestions, selectedSheets);
+
+      if (success) {
+        setSyncMessage(`✅ LocalStorage에서 ${localQuestions.length}개 문제를 Google Sheets로 업로드했습니다.`);
+      } else {
+        setSyncMessage('❌ 업로드 실패: Google Sheets API를 확인하세요.');
+      }
+    } catch (error) {
+      console.error('동기화 오류:', error);
+      setSyncMessage(`❌ 동기화 실패: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const resetNewQuestion = () => {
+    setNewQuestion({
+      category: '전기이론',
+      standard: undefined,
+      detailItem: undefined,
+      question: '',
+      option1: '',
+      option2: '',
+      option3: '',
+      option4: '',
+      answer: 1,
+      explanation: '',
+      imageUrl: '',
+      weight: undefined,
+      source: undefined,
+    });
+  };
+
+  const resetNewMember = () => {
+    setNewMember({
+      name: '',
+      phone: '',
+      address: '',
+      memo: '',
+    });
+  };
+
+  // 출제 설정 저장
+  const handleSaveExamConfig = () => {
+    try {
+      saveExamConfig(examConfig);
+      alert('✅ 출제 설정이 저장되었습니다.');
+    } catch (error) {
+      console.error('출제 설정 저장 실패:', error);
+      alert('❌ 출제 설정 저장에 실패했습니다.');
+    }
+  };
+
+  // 출제 설정 초기화
+  const handleResetExamConfig = () => {
+    if (window.confirm('출제 설정을 초기화하시겠습니까?')) {
+      resetExamConfig();
+      setExamConfig(getExamConfig());
+      alert('✅ 출제 설정이 초기화되었습니다.');
+    }
+  };
+
+  // 가중치 선택/해제
+  const toggleWeight = (weight: number) => {
+    setExamConfig(prev => {
+      const newWeights = prev.selectedWeights.includes(weight)
+        ? prev.selectedWeights.filter(w => w !== weight)
+        : [...prev.selectedWeights, weight].sort((a, b) => a - b);
+      return { ...prev, selectedWeights: newWeights };
+    });
+  };
+
+  // 가중치 비율 업데이트
+  const updateWeightRatio = (weight: number, ratio: number) => {
+    setExamConfig(prev => ({
+      ...prev,
+      weightRatios: {
+        ...prev.weightRatios,
+        [weight]: Math.max(0, Math.min(100, ratio)) // 0-100 범위 제한
+      }
+    }));
+  };
+
+  // 백업 생성 (파일 다운로드)
+  const handleCreateBackup = () => {
+    const name = prompt('백업 이름을 입력하세요 (선택사항):\n\n비워두면 자동으로 날짜/시간으로 생성됩니다.');
+    try {
+      downloadBackup(name || undefined);
+      alert('✅ 백업 파일이 다운로드되었습니다.\n\n💡 다운로드한 파일을 D:\\cbtback 폴더에 저장하세요.');
+    } catch (error) {
+      console.error('백업 생성 실패:', error);
+      const errorMessage = error instanceof Error ? error.message : '백업 생성에 실패했습니다.';
+      alert(`❌ ${errorMessage}`);
+    }
+  };
+
+  // 백업 파일 업로드 및 복원
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!window.confirm(`"${file.name}" 파일로 복원하시겠습니까?\n\n현재 데이터는 자동으로 백업됩니다.`)) {
+      event.target.value = ''; // 파일 선택 초기화
+      return;
+    }
+
+    restoreFromFile(file)
+      .then(() => {
+        loadQuestions();
+        loadMembers();
+        alert('✅ 백업에서 복원되었습니다.\n페이지를 새로고침합니다.');
+        window.location.reload();
+      })
+      .catch((error) => {
+        console.error('복원 실패:', error);
+        alert(`❌ ${error.message || '복원에 실패했습니다.'}`);
+        event.target.value = ''; // 파일 선택 초기화
+      });
+  };
+
+  // 모든 데이터 삭제
+  const handleDeleteAllData = async () => {
+    const confirmation = window.prompt(
+      '⚠️ 모든 데이터를 삭제합니다.\n\n삭제 전 자동으로 백업 파일이 다운로드됩니다.\n계속하려면 "삭제"를 입력하세요:'
+    );
+
+    if (confirmation === '삭제') {
+      try {
+        // 1. 데이터 삭제
+        deleteAllData();
+
+        // 2. 브라우저 캐시 삭제 (모바일/PC 모두 지원)
+        await clearAllCaches();
+
+        // 3. 서버에서 최신 데이터 로드
+        console.log('📥 서버에서 최신 문제 데이터 가져오는 중...');
+        const sheetsQuestions = await getAllQuestionsFromSheets();
+
+        if (sheetsQuestions && sheetsQuestions.length > 0) {
+          saveQuestions(sheetsQuestions);
+          console.log(`✅ 서버에서 ${sheetsQuestions.length}개 문제 로드 완료`);
+        } else {
+          console.warn('⚠️ 서버에 문제 데이터가 없습니다.');
+        }
+
+        loadQuestions();
+        loadMembers();
+        alert(`✅ 모든 데이터와 브라우저 캐시가 삭제되었습니다.\n서버에서 ${sheetsQuestions?.length || 0}개 문제를 로드했습니다.\n백업 파일을 업로드하여 복원할 수 있습니다.`);
+        window.location.reload();
+      } catch (error) {
+        console.error('데이터 삭제 실패:', error);
+        alert('❌ 데이터 삭제에 실패했습니다.');
+      }
+    } else if (confirmation !== null) {
+      alert('❌ 취소되었습니다. "삭제"를 정확히 입력해야 합니다.');
+    }
+  };
+
+  // 로그인 기록 삭제 (단일)
+  const handleDeleteLoginRecord = (id: number) => {
+    if (window.confirm('이 로그인 기록을 삭제하시겠습니까?')) {
+      try {
+        deleteLoginHistory(id);
+        loadLoginHistory();
+        alert('✅ 로그인 기록이 삭제되었습니다.');
+      } catch (error) {
+        console.error('로그인 기록 삭제 실패:', error);
+        alert('❌ 로그인 기록 삭제에 실패했습니다.');
+      }
+    }
+  };
+
+  // 모든 로그인 기록 삭제
+  const handleClearLoginHistory = () => {
+    if (window.confirm('⚠️ 모든 로그인 기록을 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.')) {
+      try {
+        clearLoginHistory();
+        loadLoginHistory();
+        alert('✅ 모든 로그인 기록이 삭제되었습니다.');
+      } catch (error) {
+        console.error('로그인 기록 삭제 실패:', error);
+        alert('❌ 로그인 기록 삭제에 실패했습니다.');
+      }
+    }
+  };
+
+  // 로그인 화면
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
+          <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">
+            🔧 관리자 페이지
+          </h1>
+          <input
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            onKeyPress={e => e.key === 'Enter' && handleLogin()}
+            placeholder="비밀번호 입력"
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent mb-4"
+          />
+          <button
+            onClick={handleLogin}
+            className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg transition-colors"
+          >
+            로그인
+          </button>
+          <p className="text-sm text-gray-500 mt-4 text-center">
+            기본 비밀번호: admin2024
+          </p>
+          <button
+            onClick={() => (window.location.href = '/')}
+            className="w-full mt-4 text-gray-600 hover:text-gray-800 text-sm"
+          >
+            ← 홈으로 돌아가기
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 관리자 화면
+  return (
+    <div className="min-h-screen bg-gray-100 p-4">
+      <div className="max-w-7xl mx-auto">
+        {/* 헤더 */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <div className="flex justify-between items-center">
+            <h1 className="text-3xl font-bold text-gray-800">🔧 관리자 페이지</h1>
+            <div className="flex gap-2">
+              <button
+                onClick={handleExportData}
+                className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-colors"
+              >
+                📥 내보내기
+              </button>
+              <button
+                onClick={handleImportData}
+                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
+              >
+                📤 가져오기
+              </button>
+              <button
+                onClick={() => (window.location.href = '/')}
+                className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg transition-colors"
+              >
+                ← 홈으로
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* 탭 */}
+        <div className="bg-white rounded-lg shadow-md mb-6">
+          <div className="flex border-b">
+            <button
+              onClick={() => setActiveTab('questions')}
+              className={`flex-1 py-4 px-6 font-semibold transition-colors ${
+                activeTab === 'questions'
+                  ? 'border-b-2 border-blue-500 text-blue-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              📚 문제 관리 ({questions.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('members')}
+              className={`flex-1 py-4 px-6 font-semibold transition-colors ${
+                activeTab === 'members'
+                  ? 'border-b-2 border-blue-500 text-blue-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              👥 회원 관리 ({members.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('sync')}
+              className={`flex-1 py-4 px-6 font-semibold transition-colors ${
+                activeTab === 'sync'
+                  ? 'border-b-2 border-blue-500 text-blue-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              🔄 동기화
+            </button>
+            <button
+              onClick={() => setActiveTab('statistics')}
+              className={`flex-1 py-4 px-6 font-semibold transition-colors ${
+                activeTab === 'statistics'
+                  ? 'border-b-2 border-blue-500 text-blue-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              📋 출제기준별 현황
+            </button>
+            <button
+              onClick={() => setActiveTab('config')}
+              className={`flex-1 py-4 px-6 font-semibold transition-colors ${
+                activeTab === 'config'
+                  ? 'border-b-2 border-blue-500 text-blue-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              ⚙️ 출제 설정
+            </button>
+            <button
+              onClick={() => setActiveTab('login-history')}
+              className={`flex-1 py-4 px-6 font-semibold transition-colors ${
+                activeTab === 'login-history'
+                  ? 'border-b-2 border-blue-500 text-blue-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              📜 로그인 기록 ({loginHistory.length})
+            </button>
+          </div>
+        </div>
+
+        {/* 문제 관리 탭 */}
+        {activeTab === 'questions' && (
+          <div>
+            {/* 문제 현황 */}
+            <div className="bg-white rounded-lg shadow-md p-4 mb-6">
+              <h2 className="text-lg font-bold text-gray-800 mb-3">📊 문제 현황</h2>
+              <div className="grid grid-cols-5 gap-4">
+                <div className="text-center p-3 bg-blue-50 rounded-lg">
+                  <div className="text-2xl font-bold text-blue-600">{questionStats.전체}</div>
+                  <div className="text-sm text-gray-600">전체 문제</div>
+                </div>
+                <div className="text-center p-3 bg-green-50 rounded-lg">
+                  <div className="text-2xl font-bold text-green-600">{questionStats.전기이론}</div>
+                  <div className="text-sm text-gray-600">전기이론</div>
+                </div>
+                <div className="text-center p-3 bg-yellow-50 rounded-lg">
+                  <div className="text-2xl font-bold text-yellow-600">{questionStats.전기기기}</div>
+                  <div className="text-sm text-gray-600">전기기기</div>
+                </div>
+                <div className="text-center p-3 bg-purple-50 rounded-lg">
+                  <div className="text-2xl font-bold text-purple-600">{questionStats.전기설비}</div>
+                  <div className="text-sm text-gray-600">전기설비</div>
+                </div>
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <div className="text-2xl font-bold text-gray-600">{questionStats.기타}</div>
+                  <div className="text-sm text-gray-600">기타</div>
+                </div>
+              </div>
+            </div>
+
+            {/* 카테고리 필터 및 액션 버튼 */}
+            <div className="bg-white rounded-lg shadow-md p-4 mb-6">
+              {/* 검색 바 */}
+              <div className="mb-4">
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={e => {
+                      setSearchQuery(e.target.value);
+                      setCurrentPage(1); // 검색 시 첫 페이지로 리셋
+                    }}
+                    placeholder="🔍 문제 검색 (ID, 질문, 선택지, 해설, 카테고리)"
+                    className="w-full px-4 py-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => {
+                        setSearchQuery('');
+                        setCurrentPage(1);
+                      }}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                {searchQuery && (
+                  <div className="mt-2 text-sm text-gray-600">
+                    검색 결과: {filteredQuestions.length}개 문제
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex gap-2">
+                  {['전체', '전기이론', '전기기기', '전기설비', '기타'].map(cat => (
+                    <button
+                      key={cat}
+                      onClick={() => {
+                        setSelectedCategory(cat);
+                        setCurrentPage(1);
+                      }}
+                      className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                        selectedCategory === cat
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setViewMode(viewMode === 'card' ? 'table' : 'card')}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+                  >
+                    {viewMode === 'card' ? '📋 테이블 형식' : '📇 카드 형식'}
+                  </button>
+                  <button
+                    onClick={() => setShowAddModal(true)}
+                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                  >
+                    ➕ 문제 추가
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (selectedQuestions.size === 0) {
+                        alert('선택한 문제가 없습니다.');
+                        return;
+                      }
+                      setShowStandardApplyModal(true);
+                      setStandardApplyMode('random');
+                    }}
+                    disabled={selectedQuestions.size === 0}
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded-lg transition-colors"
+                  >
+                    🎲 출제기준 적용 ({selectedQuestions.size})
+                  </button>
+                  <button
+                    onClick={handleDeleteSelected}
+                    disabled={selectedQuestions.size === 0}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-lg transition-colors"
+                  >
+                    🗑️ 선택 삭제 ({selectedQuestions.size})
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 문제 목록 */}
+            <div className="bg-white rounded-lg shadow-md p-4">
+              {/* 상단 페이지네이션 */}
+              <div className="flex justify-between items-center mb-4">
+                <div className="text-sm text-gray-600">
+                  총 {filteredQuestions.length}문제 | 페이지 {currentPage} / {totalPages}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1 bg-gray-500 hover:bg-gray-600 disabled:bg-gray-300 text-white rounded transition-colors"
+                  >
+                    ← 이전
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1 bg-gray-500 hover:bg-gray-600 disabled:bg-gray-300 text-white rounded transition-colors"
+                  >
+                    다음 →
+                  </button>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={
+                      currentQuestions.length > 0 &&
+                      currentQuestions.every(q => selectedQuestions.has(q.id))
+                    }
+                    onChange={e => handleSelectAll(e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <span className="font-semibold text-gray-700">전체 선택</span>
+                </label>
+              </div>
+
+              {/* 카드 형식 */}
+              {viewMode === 'card' && (
+                <div className="space-y-2">
+                  {currentQuestions.map((q, index) => (
+                    <div
+                      key={`question-${q.id}-${index}-${startIndex}`}
+                      onClick={() => handlePreview(q)}
+                      className="border-2 rounded-lg p-4 hover:bg-gray-50 transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedQuestions.has(q.id)}
+                          onChange={e => {
+                            e.stopPropagation();
+                            handleCheckboxChange(q.id, e.target.checked);
+                          }}
+                          onClick={e => e.stopPropagation()}
+                          className="mt-1 w-4 h-4"
+                        />
+                        <div className="flex-1">
+                          <div className="flex justify-between items-start mb-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-bold text-gray-700">ID: {q.id}</span>
+                              <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">
+                                {q.category}
+                              </span>
+                              {q.standard && (
+                                <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-sm">
+                                  {q.standard} - {getStandardTitle(q.standard)}
+                                </span>
+                              )}
+                              {q.detailItem && (
+                                <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-sm">
+                                  {q.detailItem}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  handlePreview(q);
+                                }}
+                                className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm transition-colors"
+                              >
+                                👁️ 미리보기
+                              </button>
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  setEditingQuestion(q);
+                                  setShowEditModal(true);
+                                }}
+                                className="px-3 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-sm transition-colors"
+                              >
+                                ✏️ 수정
+                              </button>
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  handleDeleteQuestion(q.id);
+                                }}
+                                className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-sm transition-colors"
+                              >
+                                🗑️ 삭제
+                              </button>
+                            </div>
+                          </div>
+                          <div className="text-gray-600 text-sm">
+                            {q.question.slice(0, 100)}...
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            정답: {q.answer}번
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 테이블 형식 */}
+              {viewMode === 'table' && (
+                <div className="overflow-x-auto overflow-y-visible" style={{ maxWidth: '100%' }}>
+                  <table className="w-max min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ minWidth: '60px' }}>선택</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ minWidth: '80px' }}>ID</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ minWidth: '100px' }}>카테고리</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ minWidth: '200px' }}>출제기준</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ minWidth: '200px' }}>세부항목</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ minWidth: '300px' }}>문제</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ minWidth: '200px' }}>선택지 1</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ minWidth: '200px' }}>선택지 2</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ minWidth: '200px' }}>선택지 3</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ minWidth: '200px' }}>선택지 4</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ minWidth: '80px' }}>정답</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ minWidth: '300px' }}>해설</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ minWidth: '200px' }}>이미지URL</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ minWidth: '80px' }}>가중치</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ minWidth: '150px' }}>출처</th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" style={{ minWidth: '120px' }}>작업</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {currentQuestions.map((q, index) => (
+                        <tr
+                          key={`question-table-${q.id}-${index}-${startIndex}`}
+                          className="hover:bg-gray-50"
+                        >
+                          <td className="px-3 py-2 whitespace-nowrap" style={{ minWidth: '60px' }}>
+                            <input
+                              type="checkbox"
+                              checked={selectedQuestions.has(q.id)}
+                              onChange={e => handleCheckboxChange(q.id, e.target.checked)}
+                              className="w-4 h-4"
+                            />
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-gray-900" style={{ minWidth: '80px' }}>{q.id}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900" style={{ minWidth: '100px' }}>{q.category}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500" style={{ minWidth: '200px' }}>
+                            {q.standard ? `${q.standard} - ${getStandardTitle(q.standard)}` : '-'}
+                          </td>
+                          <td className="px-3 py-2 text-sm text-gray-500" style={{ minWidth: '200px' }}>{q.detailItem || '-'}</td>
+                          <td className="px-3 py-2 text-sm text-gray-900" style={{ minWidth: '300px' }}>
+                            {q.question}
+                          </td>
+                          <td className="px-3 py-2 text-sm text-gray-500" style={{ minWidth: '200px' }}>{q.option1}</td>
+                          <td className="px-3 py-2 text-sm text-gray-500" style={{ minWidth: '200px' }}>{q.option2}</td>
+                          <td className="px-3 py-2 text-sm text-gray-500" style={{ minWidth: '200px' }}>{q.option3}</td>
+                          <td className="px-3 py-2 text-sm text-gray-500" style={{ minWidth: '200px' }}>{q.option4}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-sm font-semibold text-blue-600" style={{ minWidth: '80px' }}>{q.answer}번</td>
+                          <td className="px-3 py-2 text-sm text-gray-500" style={{ minWidth: '300px' }}>
+                            {q.explanation || '-'}
+                          </td>
+                          <td className="px-3 py-2 text-sm text-gray-500" style={{ minWidth: '200px' }}>{q.imageUrl || '-'}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500" style={{ minWidth: '80px' }}>{q.weight || '-'}</td>
+                          <td className="px-3 py-2 text-sm text-gray-500" style={{ minWidth: '150px' }}>{q.source || '-'}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-sm">
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => handlePreview(q)}
+                                className="px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-xs transition-colors"
+                                title="미리보기"
+                              >
+                                👁️
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditingQuestion(q);
+                                  setShowEditModal(true);
+                                }}
+                                className="px-2 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs transition-colors"
+                                title="수정"
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                onClick={() => handleDeleteQuestion(q.id)}
+                                className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition-colors"
+                                title="삭제"
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* 하단 페이지네이션 */}
+              <div className="flex justify-between items-center mt-4">
+                <div className="text-sm text-gray-600">
+                  총 {filteredQuestions.length}문제 | 페이지 {currentPage} / {totalPages}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1 bg-gray-500 hover:bg-gray-600 disabled:bg-gray-300 text-white rounded transition-colors"
+                  >
+                    ← 이전
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1 bg-gray-500 hover:bg-gray-600 disabled:bg-gray-300 text-white rounded transition-colors"
+                  >
+                    다음 →
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 출제기준별 현황 탭 */}
+        {activeTab === 'statistics' && (
+          <div>
+            <StandardStatistics />
+          </div>
+        )}
+
+        {/* 출제 설정 탭 */}
+        {activeTab === 'config' && (
+          <div className="space-y-6">
+            {/* 설정 저장/초기화 버튼 */}
+            <div className="bg-white rounded-lg shadow-md p-4">
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-bold text-gray-800">⚙️ 가중치 기반 출제 설정</h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSaveExamConfig}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                  >
+                    💾 설정 저장
+                  </button>
+                  <button
+                    onClick={handleResetExamConfig}
+                    className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg transition-colors"
+                  >
+                    🔄 초기화
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 1. 출제 로직 활성화 토글 */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h3 className="text-lg font-bold text-gray-800 mb-4">1️⃣ 출제 로직 활성화</h3>
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <p className="font-semibold text-gray-800">가중치 기반 출제 사용</p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    활성화하면 문제 출제 시 가중치를 고려하여 랜덤 선택합니다.
+                    <br />
+                    <span className="text-purple-600 font-medium">
+                      가중치 1 = 최고 빈도 (가장 많이 출제), 가중치 10 = 최저 빈도 (가장 적게 출제)
+                    </span>
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={examConfig.weightBasedEnabled}
+                    onChange={e =>
+                      setExamConfig(prev => ({ ...prev, weightBasedEnabled: e.target.checked }))
+                    }
+                    className="sr-only peer"
+                  />
+                  <div className="w-14 h-7 bg-gray-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+            </div>
+
+            {/* 2. 출제 모드 선택 */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h3 className="text-lg font-bold text-gray-800 mb-4">2️⃣ 출제 모드 선택</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => setExamConfig(prev => ({ ...prev, mode: 'filter' }))}
+                  className={`p-4 rounded-lg border-2 transition-all ${
+                    examConfig.mode === 'filter'
+                      ? 'border-blue-600 bg-blue-50'
+                      : 'border-gray-300 bg-white hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="text-left">
+                    <div className="flex items-center gap-2 mb-2">
+                      <input
+                        type="radio"
+                        checked={examConfig.mode === 'filter'}
+                        onChange={() => {}}
+                        className="w-4 h-4"
+                      />
+                      <span className="font-bold text-gray-800">필터 모드</span>
+                    </div>
+                    <p className="text-sm text-gray-600">
+                      선택한 가중치의 문제만 출제 대상으로 포함하고,
+                      <br />
+                      역 가중치 기반으로 랜덤 선택합니다.
+                    </p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setExamConfig(prev => ({ ...prev, mode: 'ratio' }))}
+                  className={`p-4 rounded-lg border-2 transition-all ${
+                    examConfig.mode === 'ratio'
+                      ? 'border-purple-600 bg-purple-50'
+                      : 'border-gray-300 bg-white hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="text-left">
+                    <div className="flex items-center gap-2 mb-2">
+                      <input
+                        type="radio"
+                        checked={examConfig.mode === 'ratio'}
+                        onChange={() => {}}
+                        className="w-4 h-4"
+                      />
+                      <span className="font-bold text-gray-800">비율 모드</span>
+                    </div>
+                    <p className="text-sm text-gray-600">
+                      가중치별로 정확한 비율을 할당하여
+                      <br />
+                      문제를 선택합니다.
+                    </p>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* 3. 출제 대상 가중치 선택 (필터 모드) */}
+            {examConfig.mode === 'filter' && (
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <h3 className="text-lg font-bold text-gray-800 mb-4">
+                  3️⃣ 출제 대상 가중치 선택 (필터 모드)
+                </h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  출제에 포함할 가중치 레벨을 선택하세요. 선택한 가중치의 문제만 출제됩니다.
+                </p>
+                <div className="grid grid-cols-5 gap-3">
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(weight => {
+                    const isSelected = examConfig.selectedWeights.includes(weight);
+                    return (
+                      <button
+                        key={weight}
+                        onClick={() => toggleWeight(weight)}
+                        className={`p-4 rounded-lg border-2 transition-all ${
+                          isSelected
+                            ? 'border-blue-600 bg-blue-50'
+                            : 'border-gray-300 bg-white hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}}
+                            className="w-4 h-4"
+                          />
+                          <span className="font-bold text-gray-800">가중치 {weight}</span>
+                        </div>
+                        <p className="text-xs text-gray-600">
+                          {weight === 1
+                            ? '최고 빈도'
+                            : weight === 10
+                            ? '최저 빈도'
+                            : weight <= 3
+                            ? '높은 빈도'
+                            : weight <= 7
+                            ? '중간 빈도'
+                            : '낮은 빈도'}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* 4. 가중치별 출제 비율 할당 (비율 모드) */}
+            {examConfig.mode === 'ratio' && (
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <h3 className="text-lg font-bold text-gray-800 mb-4">
+                  3️⃣ 가중치별 출제 비율 할당 (비율 모드)
+                </h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  각 가중치 레벨별로 출제 비율(%)을 설정하세요. 전체 합계가 100%일 필요는 없습니다.
+                </p>
+
+                <div className="space-y-3">
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(weight => {
+                    const ratio = examConfig.weightRatios?.[weight] || 0;
+                    return (
+                      <div key={weight} className="flex items-center gap-4">
+                        <label className="w-32 font-semibold text-gray-700">
+                          가중치 {weight}
+                          <span className="text-xs text-gray-500 ml-2">
+                            {weight === 1
+                              ? '(최고 빈도)'
+                              : weight === 10
+                              ? '(최저 빈도)'
+                              : ''}
+                          </span>
+                        </label>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={ratio}
+                          onChange={e => updateWeightRatio(weight, parseInt(e.target.value))}
+                          className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={ratio}
+                          onChange={e =>
+                            updateWeightRatio(weight, parseInt(e.target.value) || 0)
+                          }
+                          className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                        />
+                        <span className="text-gray-600">%</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 비율 합계 표시 */}
+                <div className="mt-6 p-4 bg-purple-50 rounded-lg border-2 border-purple-200">
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-purple-800">전체 비율 합계:</span>
+                    <span className="text-2xl font-bold text-purple-600">
+                      {Object.values(examConfig.weightRatios || {}).reduce(
+                        (sum, ratio) => sum + ratio,
+                        0
+                      )}
+                      %
+                    </span>
+                  </div>
+                  <p className="text-sm text-purple-700 mt-2">
+                    💡 합계가 100%를 초과하면 자동으로 비율이 조정됩니다.
+                    <br />
+                    합계가 100% 미만이면 나머지는 랜덤하게 채워집니다.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* 설명 및 공식 안내 */}
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg shadow-md p-6 border-2 border-blue-200">
+              <h3 className="text-lg font-bold text-gray-800 mb-4">📚 가중치 기반 출제 로직 안내</h3>
+
+              <div className="space-y-4">
+                <div className="bg-white rounded-lg p-4">
+                  <h4 className="font-bold text-blue-800 mb-2">🎯 가중치 의미</h4>
+                  <ul className="text-sm text-gray-700 space-y-1">
+                    <li>• <span className="font-semibold">가중치 1</span>: 최고 빈도 (가장 많이 출제되어야 하는 문제)</li>
+                    <li>• <span className="font-semibold">가중치 10</span>: 최저 빈도 (가장 적게 출제되어야 하는 문제)</li>
+                    <li>• <span className="font-semibold">가중치 5</span>: 중간 빈도 (기본값)</li>
+                  </ul>
+                </div>
+
+                <div className="bg-white rounded-lg p-4">
+                  <h4 className="font-bold text-purple-800 mb-2">📐 역 가중치 공식</h4>
+                  <div className="bg-purple-100 rounded p-3 font-mono text-sm">
+                    R<sub>i</sub> = 11 - W<sub>i</sub>
+                  </div>
+                  <p className="text-sm text-gray-700 mt-2">
+                    • W<sub>i</sub>: 원본 가중치 (1~10)
+                    <br />
+                    • R<sub>i</sub>: 역 가중치 (1~10, 높을수록 선택 확률 높음)
+                    <br />
+                    • 예: 가중치 1 → 역가중치 10 (선택 확률 최고)
+                    <br />
+                    • 예: 가중치 10 → 역가중치 1 (선택 확률 최저)
+                  </p>
+                </div>
+
+                <div className="bg-white rounded-lg p-4">
+                  <h4 className="font-bold text-green-800 mb-2">🔀 출제 모드</h4>
+                  <ul className="text-sm text-gray-700 space-y-2">
+                    <li>
+                      <span className="font-semibold">필터 모드:</span> 선택한 가중치의 문제만 출제 대상에 포함하고,
+                      역 가중치 기반 확률로 랜덤 선택합니다.
+                    </li>
+                    <li>
+                      <span className="font-semibold">비율 모드:</span> 가중치별로 정확한 비율(%)을 할당하여
+                      문제를 선택합니다. 예: 가중치 1 = 30%, 가중치 2 = 20% 등
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            {/* 데이터 관리 섹션 */}
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h3 className="text-lg font-bold text-gray-800 mb-4">🗄️ 데이터 관리</h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                {/* 백업 생성 */}
+                <div className="p-4 border-2 border-blue-200 rounded-lg bg-blue-50">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-2xl">💾</span>
+                    <h4 className="font-bold text-blue-800">백업 생성</h4>
+                  </div>
+                  <p className="text-sm text-gray-700 mb-3">
+                    현재 모든 데이터를 백업합니다.
+                    <br />
+                    최대 10개까지 자동 보관됩니다.
+                  </p>
+                  <button
+                    onClick={handleCreateBackup}
+                    className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                  >
+                    💾 백업 생성
+                  </button>
+                </div>
+
+                {/* 모든 데이터 삭제 */}
+                <div className="p-4 border-2 border-red-200 rounded-lg bg-red-50">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-2xl">🗑️</span>
+                    <h4 className="font-bold text-red-800">모든 데이터 삭제</h4>
+                  </div>
+                  <p className="text-sm text-gray-700 mb-3">
+                    모든 문제, 회원, 통계 데이터를 삭제합니다.
+                    <br />
+                    <span className="font-semibold text-red-600">삭제 전 자동 백업됩니다.</span>
+                  </p>
+                  <button
+                    onClick={handleDeleteAllData}
+                    className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                  >
+                    🗑️ 모든 데이터 삭제
+                  </button>
+                </div>
+              </div>
+
+              {/* 백업 파일 복원 */}
+              <div className="border-t-2 border-gray-200 pt-4">
+                <div className="p-4 border-2 border-green-200 rounded-lg bg-green-50">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-2xl">📂</span>
+                    <h4 className="font-bold text-green-800">백업 파일에서 복원</h4>
+                  </div>
+                  <p className="text-sm text-gray-700 mb-3">
+                    이전에 다운로드한 백업 파일(cbt_backup_*.json)을 업로드하여 데이터를 복원합니다.
+                    <br />
+                    <span className="font-semibold text-green-600">복원 전 현재 데이터는 자동으로 백업됩니다.</span>
+                  </p>
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleFileUpload}
+                    className="block w-full text-sm text-gray-700
+                      file:mr-4 file:py-2 file:px-4
+                      file:rounded-lg file:border-0
+                      file:text-sm file:font-semibold
+                      file:bg-green-600 file:text-white
+                      hover:file:bg-green-700
+                      file:transition-colors
+                      cursor-pointer"
+                  />
+                  <p className="text-xs text-gray-500 mt-2">
+                    💡 D:\cbtback 폴더에 저장한 백업 파일을 선택하세요.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 회원 관리 탭 */}
+        {activeTab === 'members' && (
+          <div>
+            <div className="bg-white rounded-lg shadow-md p-4 mb-6">
+              <button
+                onClick={() => setShowAddMemberModal(true)}
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+              >
+                ➕ 회원 추가
+              </button>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-md p-4">
+              <div className="space-y-2">
+                {members.map(m => (
+                  <div
+                    key={m.id}
+                    className="border-2 rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <div className="font-bold text-gray-700 mb-1">
+                          {m.name} (ID: {m.id})
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          전화번호: {m.phone}
+                        </div>
+                        <div className="text-sm text-gray-600">주소: {m.address}</div>
+                        <div className="text-sm text-gray-600">메모: {m.memo}</div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          가입일: {new Date(m.registeredAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            setEditingMember(m);
+                            setShowEditMemberModal(true);
+                          }}
+                          className="px-3 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-sm transition-colors"
+                        >
+                          ✏️ 수정
+                        </button>
+                        <button
+                          onClick={() => handleDeleteMember(m.id)}
+                          className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-sm transition-colors"
+                        >
+                          🗑️ 삭제
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 동기화 탭 */}
+        {activeTab === 'sync' && (
+          <div>
+            <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+              <h2 className="text-xl font-bold text-gray-800 mb-4">🔄 Google Sheets 동기화</h2>
+              <p className="text-gray-600 mb-4">
+                Google Sheets와 LocalStorage 간 데이터를 동기화합니다.
+              </p>
+
+              {/* 시트 선택 */}
+              <div className="bg-gray-50 border-2 border-gray-200 rounded-lg p-4 mb-6">
+                <h3 className="font-bold text-gray-800 mb-3">📋 동기화할 시트 선택</h3>
+                <p className="text-sm text-gray-600 mb-3">
+                  속도 개선을 위해 필요한 시트만 선택하세요.
+                </p>
+                
+                <div className="space-y-2">
+                  {/* 전체 선택 */}
+                  <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-2 rounded">
+                    <input
+                      type="checkbox"
+                      checked={selectedSheets.length === 5}
+                      onChange={(e) => toggleAllSheets(e.target.checked)}
+                      className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="font-semibold text-gray-800">전체 선택</span>
+                  </label>
+                  
+                  <hr className="border-gray-300" />
+                  
+                  {/* 개별 시트 선택 */}
+                  {['questions', '전기이론', '전기기기', '전기설비', '기타'].map((sheetName) => (
+                    <label key={sheetName} className="flex items-center space-x-2 cursor-pointer hover:bg-gray-100 p-2 rounded">
+                      <input
+                        type="checkbox"
+                        checked={selectedSheets.includes(sheetName)}
+                        onChange={() => toggleSheetSelection(sheetName)}
+                        className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                      />
+                      <span className="text-gray-700">{sheetName}</span>
+                    </label>
+                  ))}
+                </div>
+                
+                <p className="text-sm text-blue-600 mt-3">
+                  ✅ 선택된 시트: {selectedSheets.length}개 ({selectedSheets.join(', ')})
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="border-2 border-blue-200 rounded-lg p-4 bg-blue-50">
+                  <h3 className="font-bold text-blue-800 mb-2">📥 Google Sheets → LocalStorage</h3>
+                  <p className="text-sm text-blue-700 mb-3">
+                    선택한 시트의 데이터를 가져와서 LocalStorage에 저장합니다.
+                  </p>
+                  
+                  {/* 자동 출제기준 적용 체크박스 */}
+                  <div className="mb-3 p-3 bg-white rounded-lg border border-blue-300">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={autoApplyStandard}
+                        onChange={(e) => setAutoApplyStandard(e.target.checked)}
+                        className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                      />
+                      <span className="text-sm font-medium text-gray-700">
+                        출제기준이 없는 문제에 자동으로 출제기준 적용
+                      </span>
+                    </label>
+                    <p className="text-xs text-gray-600 mt-1 ml-6">
+                      (키워드 기반 자동 매칭 실패 시 랜덤하게 적용)
+                    </p>
+                  </div>
+                  
+                  <button
+                    onClick={handleSyncFromSheets}
+                    disabled={syncLoading || selectedSheets.length === 0}
+                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-semibold transition-colors"
+                  >
+                    {syncLoading ? '동기화 중...' : `🔄 ${selectedSheets.length}개 시트에서 가져오기`}
+                  </button>
+                </div>
+
+                <div className="border-2 border-green-200 rounded-lg p-4 bg-green-50">
+                  <h3 className="font-bold text-green-800 mb-2">📤 LocalStorage → Google Sheets</h3>
+                  <p className="text-sm text-green-700 mb-3">
+                    LocalStorage의 데이터를 선택한 시트로 업로드합니다.
+                  </p>
+                  <button
+                    onClick={handleSyncToSheets}
+                    disabled={syncLoading || selectedSheets.length === 0}
+                    className="px-6 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg font-semibold transition-colors"
+                  >
+                    {syncLoading ? '동기화 중...' : `🔄 ${selectedSheets.length}개 시트로 업로드`}
+                  </button>
+                </div>
+
+                {syncMessage && (
+                  <div
+                    className={`p-4 rounded-lg ${
+                      syncMessage.includes('✅')
+                        ? 'bg-green-100 text-green-800'
+                        : syncMessage.includes('⚠️')
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : 'bg-red-100 text-red-800'
+                    }`}
+                  >
+                    {syncMessage}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 로그인 기록 탭 */}
+        {activeTab === 'login-history' && (
+          <div>
+            <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-gray-800">📜 로그인 기록</h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={loadLoginHistory}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                  >
+                    🔄 새로고침
+                  </button>
+                  <button
+                    onClick={handleClearLoginHistory}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                  >
+                    🗑️ 전체 삭제
+                  </button>
+                </div>
+              </div>
+
+              {loginHistory.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  <p className="text-lg">로그인 기록이 없습니다.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-gray-50 border-b">
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">No</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">회원 이름</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">회원 ID</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">로그인 시간</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">브라우저 정보</th>
+                        <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700">작업</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loginHistory.map((record, index) => (
+                        <tr key={record.id} className="border-b hover:bg-gray-50 transition-colors">
+                          <td className="px-4 py-3 text-sm text-gray-800">{index + 1}</td>
+                          <td className="px-4 py-3 text-sm font-semibold text-gray-800">{record.userName}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{record.userId}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">
+                            {new Date(record.timestamp).toLocaleString('ko-KR', {
+                              year: 'numeric',
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                            })}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-gray-500 max-w-md truncate" title={record.userAgent}>
+                            {record.userAgent || 'N/A'}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <button
+                              onClick={() => handleDeleteLoginRecord(record.id)}
+                              className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-sm rounded transition-colors"
+                            >
+                              삭제
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <div className="mt-4 text-sm text-gray-600">
+                    <p>총 {loginHistory.length}개의 로그인 기록</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 문제 추가 모달 */}
+        {showAddModal && (
+          <QuestionModal
+            title="문제 추가"
+            question={newQuestion}
+            onChange={setNewQuestion}
+            onSave={handleAddQuestion}
+            onClose={() => {
+              setShowAddModal(false);
+              resetNewQuestion();
+            }}
+            autoApplyStandard={autoApplyStandard}
+            setAutoApplyStandard={setAutoApplyStandard}
+          />
+        )}
+
+        {/* 문제 수정 모달 */}
+        {showEditModal && editingQuestion && (
+          <QuestionModal
+            title="문제 수정"
+            question={editingQuestion}
+            onChange={setEditingQuestion}
+            onSave={handleUpdateQuestion}
+            onClose={() => {
+              setShowEditModal(false);
+              setEditingQuestion(null);
+            }}
+            autoApplyStandard={autoApplyStandard}
+            setAutoApplyStandard={setAutoApplyStandard}
+          />
+        )}
+
+        {/* 문제 미리보기 모달 */}
+        {showPreviewModal && previewQuestion && (
+          <QuestionPreviewModal
+            question={previewQuestion}
+            onEdit={handleEditFromPreview}
+            onClose={() => {
+              setShowPreviewModal(false);
+              setPreviewQuestion(null);
+            }}
+          />
+        )}
+
+        {/* 출제기준 적용 모달 */}
+        {showStandardApplyModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-2xl max-w-md w-full">
+              <div className="border-b p-4 flex justify-between items-center">
+                <h2 className="text-xl font-bold text-gray-800">📋 출제기준 적용</h2>
+                <button
+                  onClick={() => {
+                    setShowStandardApplyModal(false);
+                    setSelectedStandard('');
+                  }}
+                  className="text-gray-500 hover:text-gray-700 text-2xl"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div>
+                  <p className="text-sm text-gray-600 mb-4">
+                    선택한 문제: <span className="font-bold">{selectedQuestions.size}개</span>
+                  </p>
+                  
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      적용 방식
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setStandardApplyMode('random')}
+                        className={`flex-1 px-4 py-2 rounded-lg font-semibold transition-colors ${
+                          standardApplyMode === 'random'
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        🎲 랜덤 적용
+                      </button>
+                      <button
+                        onClick={() => setStandardApplyMode('manual')}
+                        className={`flex-1 px-4 py-2 rounded-lg font-semibold transition-colors ${
+                          standardApplyMode === 'manual'
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        ✏️ 직접 적용
+                      </button>
+                    </div>
+                  </div>
+
+                  {standardApplyMode === 'manual' && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          출제기준 선택
+                        </label>
+                        {(() => {
+                          const selectedQuestionsList = questions.filter(q => selectedQuestions.has(q.id));
+                          const categories = new Set(selectedQuestionsList.map(q => q.category));
+                          const allStandards = Array.from(categories).flatMap(cat => 
+                            getStandardsByCategory(cat).map(code => ({ code, category: cat }))
+                          );
+                          
+                          if (categories.size > 1) {
+                            // 여러 카테고리가 섞여있는 경우
+                            return (
+                              <select
+                                value={selectedStandard}
+                                onChange={e => {
+                                  setSelectedStandard(e.target.value);
+                                  setSelectedDetailItem(''); // 출제기준 변경 시 세부항목 초기화
+                                }}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                              >
+                                <option value="">선택하세요</option>
+                                {allStandards.map(({ code, category }) => (
+                                  <option key={code} value={code}>
+                                    [{category}] {code} - {getStandardTitle(code)}
+                                  </option>
+                                ))}
+                              </select>
+                            );
+                          } else {
+                            // 단일 카테고리
+                            const category = Array.from(categories)[0] || '전기이론';
+                            const standards = getStandardsByCategory(category);
+                            return (
+                              <select
+                                value={selectedStandard}
+                                onChange={e => {
+                                  setSelectedStandard(e.target.value);
+                                  setSelectedDetailItem(''); // 출제기준 변경 시 세부항목 초기화
+                                }}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                              >
+                                <option value="">선택하세요</option>
+                                {standards.map(code => (
+                                  <option key={code} value={code}>
+                                    {code} - {getStandardTitle(code)}
+                                  </option>
+                                ))}
+                              </select>
+                            );
+                          }
+                        })()}
+                      </div>
+                      
+                      {/* 세부항목 선택 (출제기준이 선택된 경우에만 표시) */}
+                      {selectedStandard && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            세부항목 선택 (선택사항)
+                          </label>
+                          <select
+                            value={selectedDetailItem}
+                            onChange={e => setSelectedDetailItem(e.target.value)}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                          >
+                            <option value="">미지정 (자동 적용 시도)</option>
+                            {getDetailItemsByStandard(selectedStandard).map(detailItem => (
+                              <option key={detailItem} value={detailItem}>
+                                {detailItem}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-gray-600 mt-1">
+                            미지정으로 두면 자동으로 키워드 기반 매칭을 시도합니다.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {standardApplyMode === 'random' && (
+                    <div className="p-3 bg-purple-50 rounded-lg">
+                      <p className="text-sm text-purple-800">
+                        선택한 문제들의 카테고리에 맞는 출제기준을 랜덤하게 적용합니다.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-4 pt-4">
+                  <button
+                    onClick={() => {
+                      if (standardApplyMode === 'random') {
+                        handleRandomApplyStandard();
+                      } else {
+                        handleManualApplyStandard();
+                      }
+                    }}
+                    disabled={standardApplyMode === 'manual' && !selectedStandard}
+                    className="flex-1 px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded-lg font-semibold transition-colors"
+                  >
+                    적용
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowStandardApplyModal(false);
+                      setSelectedStandard('');
+                      setSelectedDetailItem('');
+                    }}
+                    className="px-6 py-3 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-semibold transition-colors"
+                  >
+                    취소
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 회원 추가 모달 */}
+        {showAddMemberModal && (
+          <MemberModal
+            title="회원 추가"
+            member={newMember}
+            onChange={setNewMember}
+            onSave={handleAddMember}
+            onClose={() => {
+              setShowAddMemberModal(false);
+              resetNewMember();
+            }}
+          />
+        )}
+
+        {/* 회원 수정 모달 */}
+        {showEditMemberModal && editingMember && (
+          <MemberModal
+            title="회원 수정"
+            member={editingMember}
+            onChange={setEditingMember}
+            onSave={handleUpdateMember}
+            onClose={() => {
+              setShowEditMemberModal(false);
+              setEditingMember(null);
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// 문제 모달 컴포넌트
+function QuestionModal({
+  title,
+  question,
+  onChange,
+  onSave,
+  onClose,
+  autoApplyStandard,
+  setAutoApplyStandard,
+}: {
+  title: string;
+  question: any;
+  onChange: (q: any) => void;
+  onSave: () => void;
+  onClose: () => void;
+  autoApplyStandard?: boolean;
+  setAutoApplyStandard?: (value: boolean) => void;
+}) {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b p-4 flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-800">{title}</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 text-2xl">
+            ✕
+          </button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              카테고리
+            </label>
+            <select
+              value={question.category}
+              onChange={e => {
+                const newCategory = e.target.value;
+                onChange({ ...question, category: newCategory, standard: undefined, detailItem: undefined }); // 카테고리 변경 시 출제기준 및 세부항목 초기화
+              }}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="전기이론">전기이론</option>
+              <option value="전기기기">전기기기</option>
+              <option value="전기설비">전기설비</option>
+              <option value="기타">기타</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              출제기준 (선택)
+            </label>
+            <select
+              value={question.standard || ''}
+              onChange={e => {
+                const newStandard = e.target.value || undefined;
+                // 출제기준이 변경되면 세부항목도 초기화하고, 새로운 출제기준에 맞는 세부항목을 자동 할당 시도
+                const updatedQuestion = { ...question, standard: newStandard, detailItem: undefined };
+                if (newStandard && autoApplyStandard) {
+                  const matchedDetailItem = matchDetailItemByKeywords(updatedQuestion);
+                  if (matchedDetailItem) {
+                    updatedQuestion.detailItem = matchedDetailItem;
+                  }
+                }
+                onChange(updatedQuestion);
+              }}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">선택 안함</option>
+              {getStandardsByCategory(question.category || '전기이론').map((code: string) => (
+                <option key={code} value={code}>
+                  {code} - {getStandardTitle(code)}
+                </option>
+              ))}
+            </select>
+            
+            {/* 자동 출제기준 적용 체크박스 */}
+            {setAutoApplyStandard !== undefined && (
+              <div className="mt-2 p-2 bg-gray-50 rounded-lg border border-gray-200">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoApplyStandard ?? false}
+                    onChange={(e) => setAutoApplyStandard(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">
+                    출제기준이 없으면 자동으로 적용
+                  </span>
+                </label>
+                <p className="text-xs text-gray-600 mt-1 ml-6">
+                  (키워드 기반 자동 매칭 실패 시 랜덤하게 적용)
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* 세부항목 선택 (출제기준이 선택된 경우에만 표시) */}
+          {question.standard && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                세부항목 (선택)
+              </label>
+              <select
+                value={question.detailItem || ''}
+                onChange={e => onChange({ ...question, detailItem: e.target.value || undefined })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">미지정</option>
+                {getDetailItemsByStandard(question.standard).map(detailItem => (
+                  <option key={detailItem} value={detailItem}>
+                    {detailItem}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              질문 (LaTeX 지원: $ ... $)
+            </label>
+            <textarea
+              value={question.question}
+              onChange={e => onChange({ ...question, question: e.target.value })}
+              rows={3}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {[1, 2, 3, 4].map(num => (
+            <div key={num}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                선택지 {num}
+              </label>
+              <input
+                type="text"
+                value={question[`option${num}`]}
+                onChange={e =>
+                  onChange({ ...question, [`option${num}`]: e.target.value })
+                }
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          ))}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              정답 번호
+            </label>
+            <select
+              value={question.answer}
+              onChange={e => onChange({ ...question, answer: parseInt(e.target.value) })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            >
+              <option value={1}>1번</option>
+              <option value={2}>2번</option>
+              <option value={3}>3번</option>
+              <option value={4}>4번</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              해설 (LaTeX 지원: $ ... $)
+            </label>
+            <textarea
+              value={question.explanation}
+              onChange={e => onChange({ ...question, explanation: e.target.value })}
+              rows={3}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              이미지 URL (선택)
+            </label>
+            <input
+              type="text"
+              value={question.imageUrl || ''}
+              onChange={e => onChange({ ...question, imageUrl: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                출제 가중치 (선택)
+              </label>
+              <select
+                value={question.weight || ''}
+                onChange={e =>
+                  onChange({ ...question, weight: e.target.value ? parseInt(e.target.value) : undefined })
+                }
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">미지정 (기본값: 5)</option>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(w => (
+                  <option key={w} value={w}>
+                    {w} - {w === 1 ? '최고 빈도' : w === 10 ? '최저 빈도' : w <= 3 ? '높은 빈도' : w <= 7 ? '중간 빈도' : '낮은 빈도'}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-600 mt-1">
+                1 = 최고 빈도, 10 = 최저 빈도
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                문제 출처 (선택)
+              </label>
+              <input
+                type="text"
+                value={question.source || ''}
+                onChange={e => onChange({ ...question, source: e.target.value || undefined })}
+                placeholder="예: 2023년 기출, 교재명 등"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-600 mt-1">
+                교재명, 기출연도 등
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-4 pt-4">
+            <button
+              onClick={onSave}
+              className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors"
+            >
+              저장
+            </button>
+            <button
+              onClick={onClose}
+              className="px-6 py-3 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-semibold transition-colors"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 문제 미리보기 모달 컴포넌트
+function QuestionPreviewModal({
+  question,
+  onEdit,
+  onClose,
+}: {
+  question: Question;
+  onEdit: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b p-4 flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-800">문제 미리보기</h2>
+          <div className="flex gap-2">
+            <button
+              onClick={onEdit}
+              className="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg transition-colors"
+            >
+              ✏️ 수정
+            </button>
+            <button onClick={onClose} className="text-gray-500 hover:text-gray-700 text-2xl">
+              ✕
+            </button>
+          </div>
+        </div>
+        <div className="p-6">
+          <div className="mb-4">
+            <div className="flex justify-between items-center mb-2">
+              <div className="flex gap-2 items-center">
+                <h3 className="text-lg font-bold text-gray-800">ID: {question.id}</h3>
+                <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-semibold">
+                  {question.category}
+                </span>
+                {question.standard && (
+                  <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm font-semibold">
+                    {question.standard} - {getStandardTitle(question.standard)}
+                  </span>
+                )}
+              </div>
+            </div>
+            <LatexRenderer
+              text={question.question || ''}
+              className="text-gray-700 text-lg leading-relaxed"
+            />
+          </div>
+
+          {question.imageUrl && (
+            <div className="mb-4">
+              <img
+                src={question.imageUrl}
+                alt="문제 이미지"
+                className="max-w-full h-auto rounded-lg"
+              />
+            </div>
+          )}
+
+          <div className="space-y-3 mb-6">
+            {[1, 2, 3, 4].map(optionNum => {
+              const optionKey = `option${optionNum}` as keyof Question;
+              const optionText = (question[optionKey] as string) || '';
+              const isCorrectAnswer = question.answer === optionNum;
+
+              return (
+                <div
+                  key={optionNum}
+                  className={`p-4 rounded-lg border-2 ${
+                    isCorrectAnswer
+                      ? 'border-green-500 bg-green-50'
+                      : 'border-gray-300 bg-white'
+                  }`}
+                >
+                  <div className="flex items-start">
+                    <span
+                      className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold mr-3 ${
+                        isCorrectAnswer
+                          ? 'bg-green-500 text-white'
+                          : 'bg-gray-200 text-gray-700'
+                      }`}
+                    >
+                      {optionNum}
+                    </span>
+                    <div className="flex-1">
+                      <LatexRenderer text={optionText} className="text-gray-700" />
+                      {isCorrectAnswer && (
+                        <span className="ml-2 text-green-600 font-semibold">✓ 정답</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {question.explanation && (
+            <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-4">
+              <h4 className="font-bold text-blue-800 mb-2">📚 해설</h4>
+              <LatexRenderer
+                text={question.explanation || ''}
+                className="text-gray-700 leading-relaxed"
+              />
+            </div>
+          )}
+
+          {/* 출제기준 및 세부항목 (항상 표시, 없으면 "미지정" 표시) */}
+          <div className="bg-purple-50 border-2 border-purple-200 rounded-lg p-4 mt-4">
+            <h4 className="font-bold text-purple-800 mb-2">📋 출제기준</h4>
+            <div className="space-y-2">
+              {question.standard ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm font-semibold">
+                      {question.standard} - {getStandardTitle(question.standard)}
+                    </span>
+                  </div>
+                  {question.detailItem && (
+                    <div className="flex items-center gap-2 ml-2">
+                      <span className="text-purple-700 text-sm">세부항목:</span>
+                      <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm">
+                        {question.detailItem}
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-sm">
+                  미지정
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 회원 모달 컴포넌트
+function MemberModal({
+  title,
+  member,
+  onChange,
+  onSave,
+  onClose,
+}: {
+  title: string;
+  member: any;
+  onChange: (m: any) => void;
+  onSave: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full">
+        <div className="border-b p-4 flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-800">{title}</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 text-2xl">
+            ✕
+          </button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">이름 *</label>
+            <input
+              type="text"
+              value={member.name}
+              onChange={e => onChange({ ...member, name: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              전화번호
+            </label>
+            <input
+              type="text"
+              value={member.phone}
+              onChange={e => onChange({ ...member, phone: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">주소</label>
+            <input
+              type="text"
+              value={member.address}
+              onChange={e => onChange({ ...member, address: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">메모</label>
+            <textarea
+              value={member.memo}
+              onChange={e => onChange({ ...member, memo: e.target.value })}
+              rows={3}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div className="flex gap-4 pt-4">
+            <button
+              onClick={onSave}
+              className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors"
+            >
+              저장
+            </button>
+            <button
+              onClick={onClose}
+              className="px-6 py-3 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-semibold transition-colors"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 인쇄 스타일 */
+@media print {
+  /* 화면용 UI는 숨기기 */
+  .non-printable {
+    display: none !important;
+  }
+
+  /* 인쇄용 컨텐츠는 표시 */
+  .printable {
+    display: block !important;
+    font-size: 14px; /* 기본 16px에서 14px로 2pt 감소 */
+    line-height: 1.3; /* 줄간격 축소 */
+  }
+
+  /* 2단 컬럼 레이아웃 (가운데 줄 포함) */
+  .printable .space-y-6 {
+    column-count: 2;
+    column-gap: 1.5cm;
+    column-rule: 1px solid #ccc; /* 가운데 구분선 */
+  }
+
+  /* 페이지 나누기 최적화 */
+  .break-inside-avoid-page {
+    break-inside: avoid-page; /* 페이지 나누기는 피하되 컬럼 나누기는 허용 */
+    page-break-inside: avoid;
+  }
+
+  /* 인쇄 여백 설정 */
+  @page {
+    margin: 1cm;
+    size: A4;
+  }
+
+  /* 본문 여백 제거 */
+  body {
+    margin: 0;
+    padding: 0;
+  }
+
+  /* 문제 제목 줄 간격 조정 */
+  .printable h1 {
+    margin-bottom: 1cm;
+    font-size: 18px; /* 제목도 축소 */
+  }
+
+  /* 문제 간격 축소 */
+  .printable .space-y-6 > div {
+    margin-bottom: 0.3cm; /* 0.4cm에서 0.3cm로 축소 */
+    padding-bottom: 0.3cm;
+  }
+
+  /* 보기 항목 컴팩트 배치 */
+  .printable .space-y-2 {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(45%, 1fr));
+    gap: 0.1cm;
+    column-gap: 0.3cm;
+  }
+
+  .printable .space-y-2 > div {
+    break-inside: avoid;
+  }
+
+  /* 이미지 크기 제한 */
+  .printable img {
+    max-width: 100%;
+    max-height: 4cm;
+  }
+
+  /* 텍스트 요소 폰트 크기 조정 */
+  .printable .text-base {
+    font-size: 14px;
+  }
+
+  .printable .text-lg {
+    font-size: 16px;
+  }
+
+  .printable .text-2xl {
+    font-size: 18px;
+  }
+
+  .printable .text-sm {
+    font-size: 12px;
+  }
+
+  .printable .text-xs {
+    font-size: 11px;
+  }
+}
+
+/* 화면 표시 시 인쇄용 컨텐츠 숨기기 */
+@media screen {
+  .printable {
+    display: none !important;
+  }
+}

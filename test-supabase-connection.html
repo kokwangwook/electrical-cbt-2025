@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supabase 연결 테스트</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .result {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Supabase 연결 테스트</h1>
+    <button onclick="testConnection()">연결 테스트</button>
+    <div id="result"></div>
+
+    <script type="module">
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+        window.testConnection = async function() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<p>테스트 중...</p>';
+
+            try {
+                // .env 파일에서 값을 가져와야 하지만, 여기서는 직접 입력 필요
+                const supabaseUrl = 'https://eeyzenpolbrfmsamguvf.supabase.co';
+                const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVleXplbnBvbGJyZm1zYW1ndXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMxNDg4NjcsImV4cCI6MjA3ODcyNDg2N30.cRxc6STLnhDI2Fm7jADLhhdko50esBNuYOkha3BC0-0';
+
+                const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+                // questions 테이블에서 데이터 개수 확인
+                const { data, error, count } = await supabase
+                    .from('questions')
+                    .select('*', { count: 'exact', head: true });
+
+                if (error) {
+                    throw error;
+                }
+
+                resultDiv.innerHTML = `
+                    <div class="result success">
+                        <h3>✅ 연결 성공!</h3>
+                        <p>Supabase에 정상적으로 연결되었습니다.</p>
+                        <p>questions 테이블: ${count}개 행</p>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        <h3>❌ 연결 실패</h3>
+                        <p>오류: ${error.message}</p>
+                    </div>
+                `;
+            }
+        };
+    </script>
+</body>
+</html>
+

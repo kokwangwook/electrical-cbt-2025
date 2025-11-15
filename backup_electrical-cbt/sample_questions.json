@@ -1,0 +1,225 @@
+[
+  {
+    "category": "전기이론",
+    "question": "옴의 법칙에서 전압(V), 전류(I), 저항(R)의 관계식으로 옳은 것은?",
+    "option1": "V = I × R",
+    "option2": "V = I / R",
+    "option3": "V = R / I",
+    "option4": "V = I + R",
+    "answer": 1,
+    "explanation": "옴의 법칙은 V = I × R 입니다. 전압은 전류와 저항의 곱으로 나타냅니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기이론",
+    "question": "저항 10Ω에 2A의 전류가 흐를 때 소비되는 전력은?",
+    "option1": "5W",
+    "option2": "20W",
+    "option3": "40W",
+    "option4": "100W",
+    "answer": 3,
+    "explanation": "전력 P = I²R = 2² × 10 = 40W 입니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기이론",
+    "question": "직렬 회로에서 총 저항은?",
+    "option1": "각 저항의 합",
+    "option2": "각 저항의 곱",
+    "option3": "각 저항의 역수의 합",
+    "option4": "각 저항의 평균",
+    "answer": 1,
+    "explanation": "직렬 회로에서 총 저항은 R_total = R1 + R2 + R3 + ... 입니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기이론",
+    "question": "병렬 회로에서 총 저항을 구하는 공식은?",
+    "option1": "1/R_total = 1/R1 + 1/R2 + ...",
+    "option2": "R_total = R1 + R2 + ...",
+    "option3": "R_total = R1 × R2 × ...",
+    "option4": "R_total = (R1 + R2) / 2",
+    "answer": 1,
+    "explanation": "병렬 회로에서는 1/R_total = 1/R1 + 1/R2 + ... 입니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기이론",
+    "question": "키르히호프의 전류 법칙(KCL)은?",
+    "option1": "회로의 임의의 접점에 흐르는 전류의 합은 0이다",
+    "option2": "폐회로의 전압 강하의 합은 0이다",
+    "option3": "전압은 전류와 저항의 곱이다",
+    "option4": "전력은 전압과 전류의 곱이다",
+    "answer": 1,
+    "explanation": "키르히호프의 전류 법칙(KCL)은 접점에 들어오는 전류의 합과 나가는 전류의 합이 같다는 법칙입니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기이론",
+    "question": "교류 전압의 실효값은 최대값의 몇 배인가?",
+    "option1": "1/√2 배",
+    "option2": "√2 배",
+    "option3": "1/2 배",
+    "option4": "2 배",
+    "answer": 1,
+    "explanation": "교류 전압의 실효값 = 최대값 / √2 = 최대값 × 0.707 입니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기이론",
+    "question": "콘덴서의 용량 단위는?",
+    "option1": "F (패럿)",
+    "option2": "H (헨리)",
+    "option3": "Ω (옴)",
+    "option4": "W (와트)",
+    "answer": 1,
+    "explanation": "콘덴서(커패시터)의 용량 단위는 F(패럿, Farad)입니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기기기",
+    "question": "변압기의 1차 전압이 220V, 권수비가 1:10일 때 2차 전압은?",
+    "option1": "22V",
+    "option2": "220V",
+    "option3": "2200V",
+    "option4": "2.2V",
+    "answer": 3,
+    "explanation": "변압기의 전압비는 권수비와 같습니다. V2 = V1 × (N2/N1) = 220 × 10 = 2200V",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기기기",
+    "question": "3상 유도 전동기의 회전 방향을 바꾸려면?",
+    "option1": "3상 중 2상의 결선을 바꾼다",
+    "option2": "전압을 높인다",
+    "option3": "전압을 낮춘다",
+    "option4": "주파수를 바꾼다",
+    "answer": 1,
+    "explanation": "3상 유도 전동기의 회전 방향을 바꾸려면 3상 중 임의의 2상을 바꾸면 됩니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기기기",
+    "question": "직류 전동기에서 전기자 반작용을 방지하는 방법은?",
+    "option1": "보상 권선을 설치한다",
+    "option2": "전압을 높인다",
+    "option3": "속도를 낮춘다",
+    "option4": "부하를 줄인다",
+    "answer": 1,
+    "explanation": "전기자 반작용을 방지하기 위해 보상 권선(보극)을 설치합니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기기기",
+    "question": "동기 발전기의 주파수 f는? (P: 극수, N: 회전수)",
+    "option1": "f = PN/120",
+    "option2": "f = 120/PN",
+    "option3": "f = P/N",
+    "option4": "f = N/P",
+    "answer": 1,
+    "explanation": "동기 발전기의 주파수 공식은 f = PN/120 입니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기기기",
+    "question": "변압기의 철손에 해당하지 않는 것은?",
+    "option1": "동손",
+    "option2": "히스테리시스손",
+    "option3": "와류손",
+    "option4": "자기 저항손",
+    "answer": 1,
+    "explanation": "동손(구리손)은 권선의 저항에 의한 손실로 철손이 아닙니다. 철손은 히스테리시스손과 와류손입니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기기기",
+    "question": "유도 전동기의 슬립(s)이 0.05일 때 회전수는? (동기속도 1500rpm)",
+    "option1": "1425rpm",
+    "option2": "1500rpm",
+    "option3": "1575rpm",
+    "option4": "1450rpm",
+    "answer": 1,
+    "explanation": "회전수 N = Ns(1-s) = 1500 × (1-0.05) = 1500 × 0.95 = 1425rpm",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기설비",
+    "question": "접지 저항의 허용값으로 옳은 것은? (고압 이하)",
+    "option1": "100Ω 이하",
+    "option2": "10Ω 이하",
+    "option3": "1Ω 이하",
+    "option4": "1000Ω 이하",
+    "answer": 2,
+    "explanation": "고압 이하의 접지 저항은 10Ω 이하로 유지해야 합니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기설비",
+    "question": "누전차단기의 동작 원리는?",
+    "option1": "영상 변류기를 이용한 누설 전류 검출",
+    "option2": "과전류 검출",
+    "option3": "과전압 검출",
+    "option4": "온도 상승 검출",
+    "answer": 1,
+    "explanation": "누전차단기는 영상 변류기(ZCT)를 이용하여 누설 전류를 검출하여 동작합니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기설비",
+    "question": "배선용 차단기(MCCB)의 주요 기능은?",
+    "option1": "과전류 및 단락 보호",
+    "option2": "누전 보호",
+    "option3": "과전압 보호",
+    "option4": "역률 개선",
+    "answer": 1,
+    "explanation": "배선용 차단기(MCCB)는 과전류 및 단락 사고로부터 회로를 보호합니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기설비",
+    "question": "전선의 허용 전류를 결정하는 주요 요인은?",
+    "option1": "전선의 굵기와 절연물의 허용 온도",
+    "option2": "전선의 길이",
+    "option3": "전선의 색상",
+    "option4": "전선의 가격",
+    "answer": 1,
+    "explanation": "전선의 허용 전류는 전선의 굵기(단면적)와 절연물의 허용 온도에 따라 결정됩니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기설비",
+    "question": "피뢰기의 설치 목적은?",
+    "option1": "낙뢰로부터 전기 설비 보호",
+    "option2": "화재 예방",
+    "option3": "전력 절감",
+    "option4": "역률 개선",
+    "answer": 1,
+    "explanation": "피뢰기는 낙뢰 시 발생하는 이상 전압으로부터 전기 설비를 보호하기 위해 설치합니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기설비",
+    "question": "전력용 콘덴서의 주요 용도는?",
+    "option1": "역률 개선",
+    "option2": "전압 강하",
+    "option3": "전류 증가",
+    "option4": "주파수 변환",
+    "answer": 1,
+    "explanation": "전력용 콘덴서는 지상 무효 전력을 공급하여 역률을 개선하는 데 사용됩니다.",
+    "imageUrl": ""
+  },
+  {
+    "category": "전기설비",
+    "question": "전동기 보호용으로 사용되는 계전기는?",
+    "option1": "과전류 계전기",
+    "option2": "전압 계전기",
+    "option3": "주파수 계전기",
+    "option4": "역률 계전기",
+    "answer": 1,
+    "explanation": "전동기 보호를 위해 과전류 계전기(OCR)를 사용하여 과부하 및 단락 사고를 방지합니다.",
+    "imageUrl": ""
+  }
+]
+
+
+

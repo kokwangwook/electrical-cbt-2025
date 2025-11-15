@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON → Supabase 데이터 이전</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .section {
+            margin: 30px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .result {
+            margin: 15px 0;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .warning {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+        }
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+        .btn-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+        .btn-danger:hover {
+            background-color: #c82333;
+        }
+        input[type="file"] {
+            margin: 10px 0;
+            padding: 10px;
+        }
+        .progress {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+        pre {
+            background-color: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin: 15px 0;
+        }
+        .stat-box {
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .stat-box strong {
+            display: block;
+            font-size: 24px;
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <h1>📄 JSON 파일 → Supabase 데이터 이전</h1>
+    
+    <div class="section">
+        <h2>1단계: JSON 파일 선택</h2>
+        <p>관리자 페이지에서 내보낸 <code>electrical-cbt-backup-*.json</code> 파일을 선택하세요.</p>
+        <input type="file" id="jsonFile" accept=".json" />
+        <button class="btn-primary" onclick="loadJSON()">JSON 파일 로드</button>
+        <div id="loadResult"></div>
+    </div>
+
+    <div class="section">
+        <h2>2단계: 데이터 미리보기</h2>
+        <div id="previewResult"></div>
+    </div>
+
+    <div class="section">
+        <h2>3단계: Supabase 테이블에 컬럼 추가 (필수)</h2>
+        <div class="result info">
+            <p><strong>📋 먼저 Supabase에 컬럼을 추가해야 합니다:</strong></p>
+            <ol style="margin: 10px 0; padding-left: 20px;">
+                <li>Supabase 대시보드 → SQL Editor 열기</li>
+                <li>아래 SQL을 복사해서 붙여넣기</li>
+                <li>"Run" 버튼 클릭</li>
+            </ol>
+            <div style="margin: 15px 0;">
+                <button class="btn-primary" onclick="copySQL()" style="margin-bottom: 10px;">📋 SQL 복사하기</button>
+                <pre id="sqlCode" style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; cursor: pointer; user-select: all;" onclick="selectSQL()">-- ============================================
+-- Supabase 테이블 설정 SQL
+-- ============================================
+-- 이 SQL을 Supabase SQL Editor에서 한 번에 실행하세요.
+-- 기존 정책이 있어도 오류 없이 실행됩니다.
+-- ============================================
+
+-- ============================================
+-- 1. RLS (Row Level Security) 활성화 및 정책 생성
+-- ============================================
+
+-- questions 테이블: 모든 사용자 읽기 가능
+ALTER TABLE questions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "모든 사용자 읽기 가능" ON questions;
+CREATE POLICY "모든 사용자 읽기 가능" ON questions
+FOR SELECT TO public USING (true);
+
+-- members 테이블: 자신의 프로필만 접근
+ALTER TABLE members ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "자신의 프로필 보기" ON members;
+DROP POLICY IF EXISTS "자신의 프로필 수정" ON members;
+CREATE POLICY "자신의 프로필 보기" ON members
+FOR SELECT TO authenticated USING (auth.uid()::text = id);
+CREATE POLICY "자신의 프로필 수정" ON members
+FOR UPDATE TO authenticated USING (auth.uid()::text = id);
+
+-- exam_results 테이블: 자신의 결과만 접근
+ALTER TABLE exam_results ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "자신의 결과 보기" ON exam_results;
+DROP POLICY IF EXISTS "자신의 결과 저장" ON exam_results;
+CREATE POLICY "자신의 결과 보기" ON exam_results
+FOR SELECT TO authenticated USING (auth.uid()::text = user_id);
+CREATE POLICY "자신의 결과 저장" ON exam_results
+FOR INSERT TO authenticated WITH CHECK (auth.uid()::text = user_id);
+
+-- wrong_answers 테이블: 자신의 오답만 접근
+ALTER TABLE wrong_answers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "자신의 오답 보기" ON wrong_answers;
+DROP POLICY IF EXISTS "자신의 오답 저장" ON wrong_answers;
+DROP POLICY IF EXISTS "자신의 오답 수정" ON wrong_answers;
+CREATE POLICY "자신의 오답 보기" ON wrong_answers
+FOR SELECT TO authenticated USING (auth.uid()::text = user_id);
+CREATE POLICY "자신의 오답 저장" ON wrong_answers
+FOR INSERT TO authenticated WITH CHECK (auth.uid()::text = user_id);
+CREATE POLICY "자신의 오답 수정" ON wrong_answers
+FOR UPDATE TO authenticated USING (auth.uid()::text = user_id);
+
+-- ============================================
+-- 2. questions 테이블에 컬럼 추가
+-- ============================================
+
+-- detailItem 컬럼 추가 (세부항목)
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS "detailItem" TEXT;
+
+-- source 컬럼 추가 (문제 출처)
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS "source" TEXT;
+
+-- ============================================
+-- 실행 완료!
+-- ============================================</pre>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>4단계: Supabase로 데이터 이전</h2>
+        <div class="result warning">
+            <p><strong>⚠️ 주의:</strong> 이 작업은 기존 Supabase의 questions 테이블 데이터를 삭제하고 새로 추가합니다.</p>
+            <p>기존 데이터를 백업하려면 먼저 "Supabase 데이터 확인" 버튼을 클릭하세요.</p>
+        </div>
+        <button class="btn-danger" onclick="migrateToSupabase()">Supabase로 이전 시작</button>
+        <div id="migrateResult"></div>
+    </div>
+
+    <div class="section">
+        <h2>5단계: 이전 결과 확인</h2>
+        <button class="btn-primary" onclick="verifyMigration()">Supabase 데이터 확인</button>
+        <div id="verifyResult"></div>
+    </div>
+
+    <script type="module">
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+        const supabaseUrl = 'https://eeyzenpolbrfmsamguvf.supabase.co';
+        const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVleXplbnBvbGJyZm1zYW1ndXZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMxNDg4NjcsImV4cCI6MjA3ODcyNDg2N30.cRxc6STLnhDI2Fm7jADLhhdko50esBNuYOkha3BC0-0';
+        const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+        let loadedQuestions = [];
+        let loadedData = null;
+
+        // SQL 복사 함수
+        window.copySQL = async function() {
+            const sqlCode = document.getElementById('sqlCode').textContent;
+            try {
+                await navigator.clipboard.writeText(sqlCode);
+                alert('✅ SQL이 클립보드에 복사되었습니다!\n\n이제 Supabase SQL Editor에 붙여넣으세요.');
+            } catch (err) {
+                // 클립보드 API 실패 시 수동 선택
+                const textArea = document.createElement('textarea');
+                textArea.value = sqlCode;
+                textArea.style.position = 'fixed';
+                textArea.style.opacity = '0';
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    alert('✅ SQL이 클립보드에 복사되었습니다!\n\n이제 Supabase SQL Editor에 붙여넣으세요.');
+                } catch (err2) {
+                    alert('❌ 복사에 실패했습니다. SQL을 직접 선택해서 복사하세요.');
+                }
+                document.body.removeChild(textArea);
+            }
+        };
+
+        // SQL 선택 함수
+        window.selectSQL = function() {
+            const sqlCode = document.getElementById('sqlCode');
+            const range = document.createRange();
+            range.selectNodeContents(sqlCode);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+        };
+
+        // 1단계: JSON 파일 로드
+        window.loadJSON = function() {
+            const fileInput = document.getElementById('jsonFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                document.getElementById('loadResult').innerHTML = 
+                    '<div class="result error"><p>파일을 선택해주세요.</p></div>';
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const jsonText = e.target.result;
+                    loadedData = JSON.parse(jsonText);
+                    
+                    console.log('로드된 JSON 구조:', Object.keys(loadedData));
+                    
+                    // questions 배열 추출
+                    if (!loadedData.questions || !Array.isArray(loadedData.questions)) {
+                        throw new Error('JSON 파일에 questions 배열이 없습니다.');
+                    }
+                    
+                    loadedQuestions = loadedData.questions;
+                    
+                    if (loadedQuestions.length === 0) {
+                        document.getElementById('loadResult').innerHTML = `
+                            <div class="result error">
+                                <h3>⚠️ 문제 데이터가 없습니다</h3>
+                                <p>JSON 파일에 questions 배열이 비어있습니다.</p>
+                            </div>
+                        `;
+                        document.getElementById('previewResult').innerHTML = '';
+                        return;
+                    }
+                    
+                    // 통계 계산
+                    const categoryStats = {};
+                    let withImage = 0;
+                    let withStandard = 0;
+                    
+                    loadedQuestions.forEach(q => {
+                        categoryStats[q.category] = (categoryStats[q.category] || 0) + 1;
+                        if (q.hasImage || q.imageUrl) withImage++;
+                        if (q.standard) withStandard++;
+                    });
+                    
+                    document.getElementById('loadResult').innerHTML = `
+                        <div class="result success">
+                            <h3>✅ JSON 파일 로드 완료!</h3>
+                            <div class="stats">
+                                <div class="stat-box">
+                                    <strong>${loadedQuestions.length}</strong>
+                                    <div>전체 문제</div>
+                                </div>
+                                <div class="stat-box">
+                                    <strong>${withImage}</strong>
+                                    <div>이미지 포함</div>
+                                </div>
+                                <div class="stat-box">
+                                    <strong>${withStandard}</strong>
+                                    <div>출제기준 포함</div>
+                                </div>
+                            </div>
+                            <h4>카테고리별 통계:</h4>
+                            <ul>
+                                ${Object.entries(categoryStats).map(([cat, count]) => 
+                                    `<li><strong>${cat}:</strong> ${count}개</li>`
+                                ).join('')}
+                            </ul>
+                        </div>
+                    `;
+
+                    // 미리보기 표시
+                    const sample1 = loadedQuestions[0];
+                    const sample2 = loadedQuestions.length > 1 ? loadedQuestions[1] : null;
+                    
+                    document.getElementById('previewResult').innerHTML = `
+                        <div class="result info">
+                            <h3>📋 데이터 미리보기</h3>
+                            <p><strong>첫 번째 문제 (ID: ${sample1.id}):</strong></p>
+                            <pre>${JSON.stringify({
+                                id: sample1.id,
+                                category: sample1.category,
+                                question: sample1.question.substring(0, 100) + '...',
+                                option1: sample1.option1.substring(0, 50) + '...',
+                                answer: sample1.answer,
+                                hasImage: sample1.hasImage || !!sample1.imageUrl,
+                                standard: sample1.standard || '없음',
+                                detailItem: sample1.detailItem || '없음',
+                                weight: sample1.weight || 5
+                            }, null, 2)}</pre>
+                            ${sample2 ? `
+                                <p><strong>두 번째 문제 (ID: ${sample2.id}):</strong></p>
+                                <pre>${JSON.stringify({
+                                    id: sample2.id,
+                                    category: sample2.category,
+                                    question: sample2.question.substring(0, 100) + '...',
+                                    option1: sample2.option1.substring(0, 50) + '...',
+                                    answer: sample2.answer,
+                                    hasImage: sample2.hasImage || !!sample2.imageUrl,
+                                    standard: sample2.standard || '없음',
+                                    detailItem: sample2.detailItem || '없음',
+                                    weight: sample2.weight || 5
+                                }, null, 2)}</pre>
+                            ` : ''}
+                        </div>
+                    `;
+                } catch (error) {
+                    console.error('JSON 파싱 오류:', error);
+                    document.getElementById('loadResult').innerHTML = `
+                        <div class="result error">
+                            <h3>❌ 파일 파싱 실패</h3>
+                            <p>${error.message}</p>
+                            <p>JSON 파일 형식을 확인해주세요. 브라우저 콘솔(F12)에서 자세한 오류를 확인할 수 있습니다.</p>
+                        </div>
+                    `;
+                    document.getElementById('previewResult').innerHTML = '';
+                }
+            };
+            reader.onerror = function() {
+                document.getElementById('loadResult').innerHTML = 
+                    '<div class="result error"><p>파일 읽기 실패</p></div>';
+            };
+            reader.readAsText(file, 'UTF-8');
+        };
+
+        // 3단계: Supabase로 이전
+        window.migrateToSupabase = async function() {
+            const resultDiv = document.getElementById('migrateResult');
+            
+            if (loadedQuestions.length === 0) {
+                resultDiv.innerHTML = '<div class="result error"><p>먼저 JSON 파일을 로드해주세요.</p></div>';
+                return;
+            }
+
+            if (!confirm(`정말로 Supabase의 questions 테이블에 ${loadedQuestions.length}개 문제를 이전하시겠습니까?\n\n기존 데이터는 모두 삭제됩니다.`)) {
+                return;
+            }
+
+            resultDiv.innerHTML = '<div class="progress"><p>이전 준비 중...</p></div>';
+
+            try {
+                // 기존 데이터 삭제
+                resultDiv.innerHTML = '<div class="progress"><p>기존 데이터 삭제 중...</p></div>';
+                const { error: deleteError } = await supabase
+                    .from('questions')
+                    .delete()
+                    .neq('id', 0);
+
+                if (deleteError && deleteError.code !== 'PGRST116') {
+                    console.warn('기존 데이터 삭제 경고:', deleteError);
+                    // PGRST116은 "no rows found" 오류이므로 무시 가능
+                }
+
+                // 데이터 정제 및 변환
+                const cleanedQuestions = loadedQuestions.map(q => {
+                    // 타입 안전하게 변환
+                    const answer = typeof q.answer === 'number' ? q.answer : parseInt(q.answer) || 1;
+                    const weight = typeof q.weight === 'number' ? q.weight : parseInt(q.weight) || 5;
+                    
+                    // boolean 타입 확실하게 변환
+                    const hasImage = q.hasImage === true || q.hasImage === 'true' || !!(q.imageUrl && String(q.imageUrl).trim());
+                    const mustInclude = q.mustInclude === true || q.mustInclude === 'true' || false;
+                    const mustExclude = q.mustExclude === true || q.mustExclude === 'true' || false;
+                    
+                    // null/undefined 처리
+                    const imageUrl = (q.imageUrl && String(q.imageUrl).trim()) || null;
+                    const standard = (q.standard && String(q.standard).trim()) || null;
+                    const detailItem = (q.detailItem && String(q.detailItem).trim()) || null;
+                    
+                    // Supabase 테이블에 있는 컬럼만 포함
+                    const questionData = {
+                        id: Number(q.id),
+                        category: String(q.category || '기타'),
+                        question: String(q.question || ''),
+                        option1: String(q.option1 || ''),
+                        option2: String(q.option2 || ''),
+                        option3: String(q.option3 || ''),
+                        option4: String(q.option4 || ''),
+                        answer: Math.max(1, Math.min(4, answer)), // 1-4 범위로 제한
+                        explanation: String(q.explanation || ''),
+                        imageUrl: imageUrl,
+                        hasImage: Boolean(hasImage),
+                        weight: Math.max(1, Math.min(10, weight)), // 1-10 범위로 제한
+                        mustInclude: Boolean(mustInclude),
+                        mustExclude: Boolean(mustExclude)
+                    };
+                    
+                    // standard와 detailItem 추가
+                    if (standard) questionData.standard = standard;
+                    if (detailItem) questionData.detailItem = detailItem;
+                    
+                    return questionData;
+                }).filter(q => {
+                    // 필수 필드 검증
+                    return q.id > 0 && 
+                           q.question.length > 0 && 
+                           q.option1.length > 0 && 
+                           q.option2.length > 0 && 
+                           q.option3.length > 0 && 
+                           q.option4.length > 0 &&
+                           q.answer >= 1 && q.answer <= 4;
+                });
+
+                // 테스트: 첫 번째 문제만 삽입해서 오류 확인
+                if (cleanedQuestions.length > 0) {
+                    resultDiv.innerHTML = '<div class="progress"><p>테스트 중... (첫 번째 문제만 삽입)</p></div>';
+                    const testQuestion = cleanedQuestions[0];
+                    const { data: testData, error: testError } = await supabase
+                        .from('questions')
+                        .insert([testQuestion]);
+                    
+                    if (testError) {
+                        resultDiv.innerHTML = `
+                            <div class="result error">
+                                <h3>❌ 테스트 삽입 실패</h3>
+                                <p><strong>오류 메시지:</strong> ${testError.message}</p>
+                                <p><strong>오류 코드:</strong> ${testError.code || 'N/A'}</p>
+                                <p><strong>오류 상세:</strong></p>
+                                <pre>${JSON.stringify(testError, null, 2)}</pre>
+                                <p><strong>테스트 문제 데이터:</strong></p>
+                                <pre>${JSON.stringify(testQuestion, null, 2)}</pre>
+                            </div>
+                        `;
+                        return;
+                    } else {
+                        // 테스트 성공 시 삽입한 데이터 삭제
+                        await supabase.from('questions').delete().eq('id', testQuestion.id);
+                        resultDiv.innerHTML = '<div class="progress"><p>테스트 성공! 전체 데이터 이전 시작...</p></div>';
+                    }
+                }
+
+                // 데이터 이전 (배치로 나눠서)
+                const batchSize = 100;
+                let successCount = 0;
+                let errorCount = 0;
+                const errors = [];
+
+                for (let i = 0; i < cleanedQuestions.length; i += batchSize) {
+                    const batch = cleanedQuestions.slice(i, i + batchSize);
+                    
+                    const { data, error } = await supabase
+                        .from('questions')
+                        .insert(batch);
+
+                    if (error) {
+                        console.error(`배치 ${Math.floor(i / batchSize) + 1} 오류:`, error);
+                        console.error('오류 상세:', JSON.stringify(error, null, 2));
+                        console.error('배치 샘플 (첫 번째 문제):', JSON.stringify(batch[0], null, 2));
+                        
+                        errorCount += batch.length;
+                        const errorDetails = error.details || error.message || JSON.stringify(error);
+                        errors.push(`배치 ${Math.floor(i / batchSize) + 1} (문제 ${i + 1}~${Math.min(i + batchSize, cleanedQuestions.length)}): ${errorDetails}`);
+                    } else {
+                        successCount += batch.length;
+                    }
+
+                    // 진행 상황 업데이트
+                    const progress = Math.round(((i + batch.length) / cleanedQuestions.length) * 100);
+                    resultDiv.innerHTML = `
+                        <div class="progress">
+                            <p><strong>진행 중...</strong> ${Math.min(i + batch.length, cleanedQuestions.length)} / ${cleanedQuestions.length} (${progress}%)</p>
+                            <p>성공: ${successCount}개 | 실패: ${errorCount}개</p>
+                        </div>
+                    `;
+                }
+
+                let html = `
+                    <div class="result success">
+                        <h3>✅ 데이터 이전 완료!</h3>
+                        <div class="stats">
+                            <div class="stat-box">
+                                <strong>${successCount}</strong>
+                                <div>성공</div>
+                            </div>
+                            <div class="stat-box">
+                                <strong>${errorCount}</strong>
+                                <div>실패</div>
+                            </div>
+                            <div class="stat-box">
+                                <strong>${cleanedQuestions.length}</strong>
+                                <div>전체</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                if (errors.length > 0) {
+                    html += `
+                        <div class="result error">
+                            <h4>⚠️ 오류 상세 (최대 10개):</h4>
+                            <pre>${errors.slice(0, 10).join('\n')}</pre>
+                            ${errors.length > 10 ? `<p>... 외 ${errors.length - 10}개 오류</p>` : ''}
+                        </div>
+                    `;
+                }
+
+                resultDiv.innerHTML = html;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        <h3>❌ 이전 실패</h3>
+                        <p>오류: ${error.message}</p>
+                        <p>브라우저 콘솔(F12)에서 자세한 오류를 확인하세요.</p>
+                    </div>
+                `;
+                console.error('이전 오류:', error);
+            }
+        };
+
+        // 4단계: 이전 결과 확인
+        window.verifyMigration = async function() {
+            const resultDiv = document.getElementById('verifyResult');
+            resultDiv.innerHTML = '<div class="progress"><p>확인 중...</p></div>';
+
+            try {
+                // 전체 개수 확인
+                const { count, error: countError } = await supabase
+                    .from('questions')
+                    .select('*', { count: 'exact', head: true });
+
+                if (countError) throw countError;
+
+                // 샘플 데이터 가져오기
+                const { data: questions, error: dataError } = await supabase
+                    .from('questions')
+                    .select('*')
+                    .limit(5)
+                    .order('id', { ascending: true });
+
+                if (dataError) throw dataError;
+
+                // 카테고리별 통계
+                const { data: categoryData, error: categoryError } = await supabase
+                    .from('questions')
+                    .select('category');
+
+                let categoryStats = {};
+                if (!categoryError && categoryData) {
+                    categoryData.forEach(q => {
+                        categoryStats[q.category] = (categoryStats[q.category] || 0) + 1;
+                    });
+                }
+
+                let html = '<div class="result success">';
+                html += '<h3>✅ Supabase 데이터 확인</h3>';
+                html += `<div class="stats">`;
+                html += `<div class="stat-box"><strong>${count || 0}</strong><div>전체 문제</div></div>`;
+                Object.entries(categoryStats).forEach(([cat, cnt]) => {
+                    html += `<div class="stat-box"><strong>${cnt}</strong><div>${cat}</div></div>`;
+                });
+                html += `</div>`;
+                html += '</div>';
+
+                if (questions && questions.length > 0) {
+                    html += '<div class="result info">';
+                    html += '<h4>샘플 데이터 (최대 5개):</h4>';
+                    html += `<pre>${JSON.stringify(questions.map(q => ({
+                        id: q.id,
+                        category: q.category,
+                        question: q.question.substring(0, 80) + '...',
+                        answer: q.answer,
+                        hasImage: q.hasImage,
+                        standard: q.standard || '없음'
+                    })), null, 2)}</pre>`;
+                    html += '</div>';
+                }
+
+                resultDiv.innerHTML = html;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        <h3>❌ 확인 실패</h3>
+                        <p>오류: ${error.message}</p>
+                        <p>브라우저 콘솔(F12)에서 자세한 오류를 확인하세요.</p>
+                    </div>
+                `;
+                console.error('확인 오류:', error);
+            }
+        };
+    </script>
+</body>
+</html>
+

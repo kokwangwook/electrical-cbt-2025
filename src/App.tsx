@@ -1,0 +1,192 @@
+import { useState, useEffect } from 'react';
+import type { Question } from './types';
+import Home from './pages/Home';
+import Exam from './pages/Exam';
+import Result from './pages/Result';
+import Login from './pages/Login';
+import Admin from './pages/Admin';
+import WrongAnswers from './pages/WrongAnswers';
+import Statistics from './pages/Statistics';
+import { getCurrentUser, initializeData, saveCurrentExamSession, getCurrentExamSession, getQuestions } from './services/storage';
+import type { ExamSession } from './types';
+
+type AppState = 'login' | 'home' | 'exam' | 'result' | 'admin' | 'wrongAnswers' | 'statistics';
+
+function App() {
+  const [state, setState] = useState<AppState>('login');
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [answers, setAnswers] = useState<(number | null)[]>([]);
+  const [startTime, setStartTime] = useState<number>(0);
+  const [examMode, setExamMode] = useState<'timedRandom' | 'untimedRandom' | 'category' | 'wrong'>('timedRandom');
+
+  // 초기화
+  useEffect(() => {
+    initializeData();
+    // 자동 샘플 데이터 로드 제거 - 로그인 시에만 서버 데이터 로드
+
+    // URL 기반 라우팅
+    const path = window.location.pathname;
+    const params = new URLSearchParams(window.location.search);
+    const examModeParam = params.get('mode');
+
+    // 시험 모드 자동 시작 (새창으로 열린 경우)
+    if (examModeParam === 'exam') {
+      const session = getCurrentExamSession();
+      if (session && session.questions && session.questions.length > 0) {
+        // 세션의 문제에 이미지 복원 (세션 저장 시 용량 절약을 위해 이미지 제거됨)
+        const allQuestions = getQuestions();
+        const questionsWithImages = session.questions.map(sessionQ => {
+          const originalQ = allQuestions.find(q => q.id === sessionQ.id);
+          if (originalQ && originalQ.imageUrl) {
+            return { ...sessionQ, imageUrl: originalQ.imageUrl };
+          }
+          return sessionQ;
+        });
+
+        setQuestions(questionsWithImages);
+        setExamMode(session.mode || 'timedRandom');
+        setStartTime(session.startTime || Date.now());
+        setState('exam');
+        console.log('✅ 시험 세션 복원 완료 (이미지 포함)');
+        return;
+      }
+    }
+
+    // 관리자 페이지
+    if (path === '/admin') {
+      setState('admin');
+    } else {
+      // 기존 로그인 상태 확인
+      const userId = getCurrentUser();
+      if (userId) {
+        setState('home');
+      } else {
+        setState('login');
+      }
+    }
+  }, []);
+
+  const handleLoginSuccess = () => {
+    setState('home');
+  };
+
+  const handleGuestMode = () => {
+    setState('home');
+  };
+
+  const handleStartExam = (selectedQuestions: Question[], mode: 'timedRandom' | 'untimedRandom' | 'category' | 'wrong') => {
+    setQuestions(selectedQuestions);
+    setExamMode(mode);
+    setStartTime(Date.now());
+    
+    // 세션에 모드 저장
+    const session: ExamSession = {
+      questions: selectedQuestions,
+      answers: {},
+      startTime: Date.now(),
+      mode: mode as any,
+      userId: getCurrentUser() || undefined,
+    };
+    saveCurrentExamSession(session);
+    
+    setState('exam');
+  };
+
+  const handleCompleteExam = (examAnswers: (number | null)[], mode?: 'timedRandom' | 'untimedRandom' | 'category' | 'wrong') => {
+    setAnswers(examAnswers);
+    if (mode) {
+      setExamMode(mode);
+    }
+    setState('result');
+  };
+
+  const handleRestart = () => {
+    // 실전 모의고사 모드이고 새 창으로 열린 경우 창 닫기
+    const params = new URLSearchParams(window.location.search);
+    const isNewWindow = params.get('mode') === 'exam' && window.opener !== null;
+    
+    if (isNewWindow && examMode === 'timedRandom') {
+      // 새 창 닫기
+      window.close();
+    } else {
+      // 현재 창에서 홈으로
+      setQuestions([]);
+      setAnswers([]);
+      setStartTime(0);
+      setState('home');
+    }
+  };
+
+  const handleExit = () => {
+    setState('home');
+  };
+
+  const handleGoToWrongAnswers = () => {
+    setState('wrongAnswers');
+  };
+
+  const handleGoToStatistics = () => {
+    setState('statistics');
+  };
+
+  const handleBackToHome = () => {
+    setState('home');
+  };
+
+  const handleStartReview = (reviewQuestions: Question[]) => {
+    setQuestions(reviewQuestions);
+    const startTime = Date.now();
+    setStartTime(startTime);
+    setExamMode('wrong'); // 오답노트 복습 모드
+    
+    // ExamSession 저장
+    const currentUserId = getCurrentUser();
+    const sessionData: ExamSession = {
+      questions: reviewQuestions,
+      answers: {},
+      startTime,
+      mode: 'wrong',
+      category: undefined,
+      userId: currentUserId || undefined, // 현재 사용자 ID 저장
+    };
+    saveCurrentExamSession(sessionData);
+    
+    setState('exam');
+  };
+
+  const timeSpent = state === 'result' ? Math.floor((Date.now() - startTime) / 1000) : 0;
+
+  return (
+    <div>
+      {state === 'login' && (
+        <Login onLoginSuccess={handleLoginSuccess} onGuestMode={handleGuestMode} />
+      )}
+      {state === 'home' && (
+        <Home
+          onStartExam={handleStartExam}
+          onGoToWrongAnswers={handleGoToWrongAnswers}
+          onGoToStatistics={handleGoToStatistics}
+        />
+      )}
+      {state === 'exam' && (
+        <Exam questions={questions} onComplete={handleCompleteExam} onExit={handleExit} />
+      )}
+      {state === 'result' && (
+        <Result
+          questions={questions}
+          answers={answers}
+          timeSpent={timeSpent}
+          mode={examMode}
+          onRestart={handleRestart}
+        />
+      )}
+      {state === 'wrongAnswers' && (
+        <WrongAnswers onBack={handleBackToHome} onStartReview={handleStartReview} />
+      )}
+      {state === 'statistics' && <Statistics onBack={handleBackToHome} />}
+      {state === 'admin' && <Admin />}
+    </div>
+  );
+}
+
+export default App;

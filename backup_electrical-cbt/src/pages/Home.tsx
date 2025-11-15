@@ -1,0 +1,680 @@
+import { useState, useEffect } from 'react';
+import type { Question } from '../types';
+import {
+  getQuestions,
+  getWrongAnswers,
+  getCurrentExamSession,
+  clearCurrentExamSession,
+  saveCurrentExamSession,
+  getCurrentUser,
+  getMemberById,
+  logout,
+  initializeData,
+  clearWrongAnswers,
+  clearStatistics,
+  saveQuestions,
+} from '../services/storage';
+import type { ExamSession } from '../types';
+import { getExamConfig } from '../services/examConfigService';
+import { selectBalancedQuestionsByWeight, selectCategoryQuestionsByWeight } from '../services/weightedRandomService';
+
+interface HomeProps {
+  onStartExam: (questions: Question[]) => void;
+  onGoToWrongAnswers: () => void;
+  onGoToStatistics: () => void;
+}
+
+export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics }: HomeProps) {
+  const [mode, setMode] = useState<'random' | 'category' | 'wrong'>('random');
+  const [selectedCategory, setSelectedCategory] = useState<string>('전기이론');
+  const [randomize, setRandomize] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [hasPreviousSession, setHasPreviousSession] = useState<boolean>(false);
+  const [previousSession, setPreviousSession] = useState<ExamSession | null>(null);
+
+  const currentUserId = getCurrentUser();
+  const currentUser = currentUserId ? getMemberById(currentUserId) : null;
+
+  const [syncStatus, setSyncStatus] = useState<{
+    loading: boolean;
+    message: string | null;
+    lastSyncTime: number | null;
+  }>({
+    loading: false,
+    message: null,
+    lastSyncTime: null,
+  });
+
+  const [questionCounts, setQuestionCounts] = useState<{
+    전기이론: number;
+    전기기기: number;
+    전기설비: number;
+    total: number;
+  }>({
+    전기이론: 0,
+    전기기기: 0,
+    전기설비: 0,
+    total: 0,
+  });
+
+  // 초기화 및 문제 데이터 확인
+  useEffect(() => {
+    initializeData();
+    
+    // 문제 수 로드 함수 (LocalStorage에서 즉시 가져오기 - 빠른 응답)
+    const loadQuestionCounts = () => {
+      try {
+        const allQuestions = getQuestions();
+        const 전기이론 = allQuestions.filter(q => q.category === '전기이론').length;
+        const 전기기기 = allQuestions.filter(q => q.category === '전기기기').length;
+        const 전기설비 = allQuestions.filter(q => q.category === '전기설비').length;
+        const total = 전기이론 + 전기기기 + 전기설비;
+        
+        setQuestionCounts({
+          전기이론,
+          전기기기,
+          전기설비,
+          total,
+        });
+        
+        console.log(`📊 LocalStorage 문제 수: 전기이론 ${전기이론}개, 전기기기 ${전기기기}개, 전기설비 ${전기설비}개 (총 ${total}개)`);
+      } catch (error) {
+        console.error('문제 수 로드 실패:', error);
+        setQuestionCounts({
+          전기이론: 0,
+          전기기기: 0,
+          전기설비: 0,
+          total: 0,
+        });
+      }
+    };
+    
+    // 문제 데이터가 부족한지 확인
+    const checkAndSyncQuestions = async () => {
+      const allQuestions = getQuestions();
+      const categories = ['전기이론', '전기기기', '전기설비'];
+      const categoryCounts = categories.map(cat => ({
+        category: cat,
+        count: allQuestions.filter(q => q.category === cat).length,
+      }));
+      
+      // 각 카테고리에서 20개 이상 문제가 있는지 확인
+      const hasEnoughQuestions = categoryCounts.every(cc => cc.count >= 20);
+      
+      // 문제가 부족하거나 전체 문제가 100개 미만이면 자동 동기화 시도
+      // (700문제 이상이 있어야 하므로, 100개 미만이면 문제가 사라진 것으로 판단)
+      if (!hasEnoughQuestions || allQuestions.length < 100) {
+        console.log('📊 문제 데이터가 부족합니다. Google Sheets에서 자동 동기화를 시도합니다...');
+        setSyncStatus({
+          loading: true,
+          message: '문제 데이터 동기화 중...',
+          lastSyncTime: null,
+        });
+        
+        try {
+          // Google Sheets에서 문제 가져오기
+          const { getAllQuestionsFromSheets } = await import('../services/googleSheetsService');
+          
+          let sheetsQuestions: Question[] = [];
+          try {
+            sheetsQuestions = await getAllQuestionsFromSheets(['questions', '전기이론', '전기기기', '전기설비', '기타']);
+          } catch (apiError) {
+            console.error('❌ Google Sheets API 호출 실패:', apiError);
+            // API 에러는 무시하고 기존 데이터 사용
+            setSyncStatus({
+              loading: false,
+              message: '⚠️ Google Sheets 연결 실패 (기존 데이터 사용)',
+              lastSyncTime: null,
+            });
+            // 문제 수 업데이트 (LocalStorage에서 즉시 가져오기)
+            loadQuestionCounts();
+            return; // 에러 발생 시 함수 종료
+          }
+          
+          if (sheetsQuestions && sheetsQuestions.length > 0) {
+            console.log(`📥 Google Sheets에서 ${sheetsQuestions.length}개 문제를 가져왔습니다.`);
+            
+            // 기존 문제와 병합 (중복 제거 - ID와 내용 기반)
+            const existingQuestions = getQuestions();
+            
+            console.log(`📊 기존 문제: ${existingQuestions.length}개`);
+            
+            // ID 중복 처리 및 정규화
+            const processedQuestions: Question[] = [];
+            const usedIds = new Set<number>(existingQuestions.map(q => q.id));
+            let nextId = existingQuestions.length > 0 
+              ? Math.max(...existingQuestions.map(q => q.id)) + 1
+              : 1000;
+            
+            // 기존 문제 먼저 추가
+            existingQuestions.forEach(q => {
+              processedQuestions.push(q);
+            });
+            
+            // 새로운 문제 추가 (중복 제거 - ID와 내용 기반)
+            let addedCount = 0;
+            sheetsQuestions.forEach((q) => {
+              // ID가 없거나 중복이면 새로 부여
+              if (!q.id || q.id === 0 || usedIds.has(q.id)) {
+                // 사용 가능한 ID 찾기
+                while (usedIds.has(nextId)) {
+                  nextId++;
+                }
+                q.id = nextId;
+                nextId++;
+              }
+              
+              // 중복 체크 (ID와 내용 기반)
+              const isDuplicate = processedQuestions.some(existing => {
+                // ID가 같거나, 문제 내용과 카테고리가 같으면 중복으로 간주
+                return existing.id === q.id || 
+                       (existing.question?.trim() === q.question?.trim() && 
+                        existing.category === q.category);
+              });
+              
+              if (!isDuplicate) {
+                usedIds.add(q.id);
+                processedQuestions.push(q);
+                addedCount++;
+              }
+            });
+            
+            saveQuestions(processedQuestions);
+            
+            const finalCount = processedQuestions.length;
+            const categoryBreakdown = {
+              전기이론: processedQuestions.filter(q => q.category === '전기이론').length,
+              전기기기: processedQuestions.filter(q => q.category === '전기기기').length,
+              전기설비: processedQuestions.filter(q => q.category === '전기설비').length,
+              기타: processedQuestions.filter(q => !['전기이론', '전기기기', '전기설비'].includes(q.category || '')).length,
+            };
+            
+            console.log(`✅ 자동 동기화 완료: ${addedCount}개 문제 추가 (총 ${finalCount}개)`);
+            console.log(`📊 카테고리별: 전기이론 ${categoryBreakdown.전기이론}개, 전기기기 ${categoryBreakdown.전기기기}개, 전기설비 ${categoryBreakdown.전기설비}개, 기타 ${categoryBreakdown.기타}개`);
+            
+            // 문제 수 업데이트 (LocalStorage에서 즉시 가져오기)
+            loadQuestionCounts();
+            
+            setSyncStatus({
+              loading: false,
+              message: `✅ ${addedCount}개 문제 동기화 완료 (총 ${finalCount}개)`,
+              lastSyncTime: Date.now(),
+            });
+            
+            // 문제가 여전히 부족하면 경고
+            if (finalCount < 100) {
+              setTimeout(() => {
+                setSyncStatus(prev => ({
+                  ...prev,
+                  message: `⚠️ 문제가 여전히 부족합니다 (${finalCount}개). 관리자 페이지에서 수동 동기화를 시도해주세요.`,
+                }));
+              }, 1000);
+            }
+            
+            // 5초 후 메시지 숨기기
+            setTimeout(() => {
+              setSyncStatus(prev => ({ ...prev, message: null }));
+            }, 5000);
+          } else {
+            console.log('⚠️ Google Sheets에서 문제를 가져올 수 없습니다.');
+            setSyncStatus({
+              loading: false,
+              message: '⚠️ 동기화할 문제가 없습니다.',
+              lastSyncTime: null,
+            });
+          }
+        } catch (error) {
+          console.error('❌ 자동 동기화 실패:', error);
+          setSyncStatus({
+            loading: false,
+            message: '⚠️ 자동 동기화 실패 (관리자 페이지에서 수동 동기화 가능)',
+            lastSyncTime: null,
+          });
+        }
+      } else {
+        console.log(`✅ 문제 데이터 충분: 총 ${allQuestions.length}개`);
+      }
+      
+      // 문제 수 업데이트 (LocalStorage에서 즉시 가져오기)
+      loadQuestionCounts();
+    };
+    
+    checkAndSyncQuestions();
+  }, []);
+
+  // 이전 시험 세션 확인
+  useEffect(() => {
+    const existingSession = getCurrentExamSession();
+    if (existingSession && existingSession.questions && existingSession.questions.length > 0) {
+      setHasPreviousSession(true);
+      setPreviousSession(existingSession);
+    } else {
+      setHasPreviousSession(false);
+      setPreviousSession(null);
+    }
+  }, []);
+
+  const handleStartExam = () => {
+    setLoading(true);
+
+    try {
+      // 이전 시험 세션이 있으면 삭제하고 새로 시작
+      const existingSession = getCurrentExamSession();
+      if (existingSession && existingSession.questions.length > 0) {
+        clearCurrentExamSession();
+        setHasPreviousSession(false);
+        setPreviousSession(null);
+      }
+
+      const allQuestions = getQuestions();
+
+      if (allQuestions.length === 0) {
+        alert('등록된 문제가 없습니다. 관리자 페이지에서 문제를 추가해주세요.');
+        setLoading(false);
+        return;
+      }
+
+      let examQuestions: Question[] = [];
+
+      // 출제 설정 불러오기
+      const examConfig = getExamConfig();
+      console.log('📋 출제 설정:', examConfig);
+
+      // 모드별 문제 선택
+      if (mode === 'random') {
+        // 랜덤출제 모드: 가중치 기반 균등 배분 (총 60문제)
+        console.log('🎲 랜덤 모드: 가중치 기반 균등 배분');
+        examQuestions = selectBalancedQuestionsByWeight(allQuestions, 60, examConfig);
+        console.log(`✅ 선택된 문제: ${examQuestions.length}개`);
+
+        // 문제 수 부족 경고
+        if (examQuestions.length < 60) {
+          const categories = ['전기이론', '전기기기', '전기설비'];
+          const categoryDetails = categories
+            .map(cat => `${cat}: ${allQuestions.filter(q => q.category === cat).length}개`)
+            .join(', ');
+
+          alert(
+            `일부 카테고리에 문제가 부족합니다.\n\n` +
+            `현재 DB 문제 수: ${allQuestions.length}개\n` +
+            `카테고리별: ${categoryDetails}\n\n` +
+            `${examQuestions.length}문제로 시작합니다.`
+          );
+        }
+      } else if (mode === 'category') {
+        // 카테고리별 모드: 선택한 카테고리에서 가중치 기반 20문제 선택
+        console.log(`📚 카테고리 모드: ${selectedCategory} (가중치 기반)`);
+
+        const categoryQuestions = allQuestions.filter(q => q.category === selectedCategory);
+
+        if (categoryQuestions.length === 0) {
+          alert(`${selectedCategory} 카테고리에 문제가 없습니다.`);
+          setLoading(false);
+          return;
+        }
+
+        // 가중치 기반 선택
+        examQuestions = selectCategoryQuestionsByWeight(allQuestions, selectedCategory, 20, examConfig);
+        console.log(`✅ 선택된 문제: ${examQuestions.length}개`);
+
+        if (examQuestions.length < 20) {
+          alert(
+            `${selectedCategory} 카테고리에 문제가 ${categoryQuestions.length}개뿐입니다.\n${examQuestions.length}문제로 시작합니다.`
+          );
+        }
+      } else if (mode === 'wrong') {
+        // 오답노트 모드: 연속 3회 정답 미만인 문제만 선택 (최대 20문제)
+        const wrongAnswers = getWrongAnswers();
+        const eligibleWrong = wrongAnswers.filter(wa => wa.correctStreak < 3);
+
+        if (eligibleWrong.length === 0) {
+          alert('오답노트에 풀 문제가 없습니다.');
+          setLoading(false);
+          return;
+        }
+
+        let wrongQuestions = eligibleWrong.map(wa => wa.question);
+
+        // 20문제 초과 시 랜덤 선택
+        if (wrongQuestions.length > 20) {
+          const shuffled = [...wrongQuestions].sort(() => Math.random() - 0.5);
+          wrongQuestions = shuffled.slice(0, 20);
+        }
+
+        examQuestions = wrongQuestions;
+      }
+
+      const currentUserId = getCurrentUser();
+      // 세션 저장
+      const sessionData: ExamSession = {
+        questions: examQuestions,
+        answers: {},
+        startTime: Date.now(),
+        mode,
+        category: mode === 'category' ? selectedCategory : undefined,
+        userId: currentUserId || undefined, // 현재 사용자 ID 저장
+      };
+      saveCurrentExamSession(sessionData);
+
+      // 시험 시작
+      onStartExam(examQuestions);
+    } catch (error) {
+      console.error('시험 시작 오류:', error);
+      alert('시험을 시작하는 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResumePreviousExam = () => {
+    if (previousSession && previousSession.questions && previousSession.questions.length > 0) {
+      // 이전 시험 이어서 풀기
+      onStartExam(previousSession.questions);
+    }
+  };
+
+  const handleLogout = () => {
+    if (window.confirm('로그아웃하시겠습니까?')) {
+      logout();
+      window.location.reload();
+    }
+  };
+
+  const handleClearAllData = () => {
+    const wrongCount = getWrongAnswers().length;
+    const stats = getCurrentExamSession();
+    const hasStats = stats && stats.questions && stats.questions.length > 0;
+    
+    let message = '모든 데이터를 초기화하시겠습니까?\n\n';
+    if (wrongCount > 0) {
+      message += `- 오답 노트: ${wrongCount}문제\n`;
+    }
+    if (hasStats) {
+      message += `- 진행 중인 시험 세션\n`;
+    }
+    message += `- 학습 통계\n\n`;
+    message += '⚠️ 이 작업은 되돌릴 수 없습니다.';
+    
+    if (window.confirm(message)) {
+      clearWrongAnswers();
+      clearStatistics();
+      clearCurrentExamSession();
+      alert('✅ 모든 데이터가 초기화되었습니다.');
+      window.location.reload();
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full">
+        {/* 헤더 */}
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold text-gray-800 mb-2">⚡ 전기기능사 CBT</h1>
+          <p className="text-gray-600">Computer Based Test</p>
+
+          {/* 로그인 상태 표시 */}
+          {currentUser && (
+            <div className="mt-4 flex justify-center items-center gap-3">
+              <div className="bg-blue-100 px-4 py-2 rounded-full">
+                <span className="text-blue-800 font-semibold">
+                  👤 {currentUser.name}님 환영합니다!
+                </span>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white text-sm rounded-lg transition-colors"
+              >
+                로그아웃
+              </button>
+            </div>
+          )}
+          {!currentUser && (
+            <div className="mt-4">
+              <span className="bg-yellow-100 px-4 py-2 rounded-full text-yellow-800 text-sm">
+                👤 게스트 모드 (기록 저장 안됨)
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* 동기화 상태 표시 */}
+        {syncStatus.loading && (
+          <div className="mb-4 p-4 rounded-lg bg-blue-100 text-blue-800 border border-blue-300">
+            <div className="flex items-center">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-800 mr-2"></div>
+              <span>문제 데이터 동기화 중...</span>
+            </div>
+          </div>
+        )}
+
+        {syncStatus.message && !syncStatus.loading && (
+          <div className={`mb-4 p-4 rounded-lg ${
+            syncStatus.message.includes('✅') 
+              ? 'bg-green-100 text-green-800 border border-green-300' 
+              : syncStatus.message.includes('⚠️')
+              ? 'bg-yellow-100 text-yellow-800 border border-yellow-300'
+              : 'bg-blue-100 text-blue-800 border border-blue-300'
+          }`}>
+            <div className="flex items-center justify-between">
+              <span>{syncStatus.message}</span>
+              <button
+                onClick={() => setSyncStatus(prev => ({ ...prev, message: null }))}
+                className="ml-2 text-gray-500 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 문제 출제 */}
+        <>
+            {/* 시험 정보 */}
+            <div className="bg-blue-50 rounded-lg p-6 mb-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">📋 시험 정보</h2>
+              <div className="flex flex-wrap items-center gap-4 text-gray-700">
+                <span className="flex items-center">
+                  <span className="font-semibold mr-2">•</span>
+                  시험 시간: 60분
+                </span>
+                <span className="flex items-center">
+                  <span className="font-semibold mr-2">•</span>
+                  합격 기준: 60점 이상
+                </span>
+                <span className="flex items-center">
+                  <span className="font-semibold mr-2">•</span>
+                  문제 유형: 객관식 4지선다
+                </span>
+              </div>
+            </div>
+
+            {/* 문제 현황 - 카드 형식 */}
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">📊 문제 현황</h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {/* 전체 문제 */}
+                <div className="text-center p-4 bg-blue-50 rounded-lg">
+                  <div className="text-3xl font-bold text-blue-600">
+                    {questionCounts.total || 4217}
+                  </div>
+                  <div className="text-sm text-gray-600 mt-1">전체 문제</div>
+                </div>
+                {/* 전기이론 */}
+                <div className="text-center p-4 bg-green-50 rounded-lg">
+                  <div className="text-3xl font-bold text-green-600">
+                    {questionCounts.전기이론 || 1360}
+                  </div>
+                  <div className="text-sm text-gray-600 mt-1">전기이론</div>
+                </div>
+                {/* 전기기기 */}
+                <div className="text-center p-4 bg-yellow-50 rounded-lg">
+                  <div className="text-3xl font-bold text-orange-600">
+                    {questionCounts.전기기기 || 1436}
+                  </div>
+                  <div className="text-sm text-gray-600 mt-1">전기기기</div>
+                </div>
+                {/* 전기설비 */}
+                <div className="text-center p-4 bg-purple-50 rounded-lg">
+                  <div className="text-3xl font-bold text-purple-600">
+                    {questionCounts.전기설비 || 1420}
+                  </div>
+                  <div className="text-sm text-gray-600 mt-1">전기설비</div>
+                </div>
+              </div>
+            </div>
+
+            {/* 학습 도구 버튼 */}
+            <div className="flex gap-4 mb-6">
+              <button
+                onClick={onGoToWrongAnswers}
+                className="flex-1 px-4 py-3 bg-pink-100 hover:bg-pink-200 text-red-800 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
+              >
+                📝 오답 노트
+              </button>
+              <button
+                onClick={onGoToStatistics}
+                className="flex-1 px-4 py-3 bg-green-100 hover:bg-green-200 text-green-800 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
+              >
+                📊 학습 통계
+              </button>
+              <button
+                onClick={handleClearAllData}
+                className="px-4 py-3 bg-red-100 hover:bg-red-200 text-red-800 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2 whitespace-nowrap"
+              >
+                🗑️ 모든 데이터 초기화
+              </button>
+            </div>
+            {/* 시험 모드 선택 */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">시험 모드 선택</label>
+              <div className="space-y-2">
+                <label className="flex items-center p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="mode"
+                    value="random"
+                    checked={mode === 'random'}
+                    onChange={() => setMode('random')}
+                    className="mr-3 w-4 h-4"
+                  />
+                  <div className="flex-1">
+                    <div className="font-semibold text-gray-800">🎲 랜덤출제 (정규 시험)</div>
+                    <div className="text-sm text-gray-600">
+                      전기이론 20 + 전기기기 20 + 전기설비 20 = 총 60문제
+                    </div>
+                  </div>
+                </label>
+
+                <label className="flex items-center p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="mode"
+                    value="category"
+                    checked={mode === 'category'}
+                    onChange={() => setMode('category')}
+                    className="mr-3 w-4 h-4"
+                  />
+                  <div className="flex-1">
+                    <div className="font-semibold text-gray-800">📚 카테고리별 학습</div>
+                    <div className="text-sm text-gray-600">선택한 카테고리에서 20문제 출제</div>
+                  </div>
+                </label>
+
+                <label className="flex items-center p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="mode"
+                    value="wrong"
+                    checked={mode === 'wrong'}
+                    onChange={() => setMode('wrong')}
+                    className="mr-3 w-4 h-4"
+                  />
+                  <div className="flex-1">
+                    <div className="font-semibold text-gray-800">📝 오답노트 복습</div>
+                    <div className="text-sm text-gray-600">
+                      틀렸던 문제만 재출제 (최대 20문제)
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* 카테고리 선택 (카테고리별 모드 시) */}
+            {mode === 'category' && (
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">카테고리 선택</label>
+                <div className="space-y-2">
+                  {['전기이론', '전기기기', '전기설비'].map(cat => (
+                    <label
+                      key={cat}
+                      className="flex items-center p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
+                    >
+                      <input
+                        type="radio"
+                        name="category"
+                        value={cat}
+                        checked={selectedCategory === cat}
+                        onChange={() => setSelectedCategory(cat)}
+                        className="mr-3 w-4 h-4"
+                      />
+                      <span className="font-medium text-gray-800">{cat}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 문제 순서 랜덤 선택 (랜덤 모드 시) */}
+            {mode === 'random' && (
+              <div className="mb-6">
+                <label className="flex items-center p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={randomize}
+                    onChange={e => setRandomize(e.target.checked)}
+                    className="mr-3 w-4 h-4"
+                  />
+                  <div>
+                    <div className="font-semibold text-gray-800">🔀 문제 순서 랜덤</div>
+                    <div className="text-sm text-gray-600">
+                      카테고리 순서를 섞어서 출제합니다
+                    </div>
+                  </div>
+                </label>
+              </div>
+            )}
+
+            {/* 이전 시험 계속하기 버튼 */}
+            {hasPreviousSession && previousSession && (
+              <div className="mb-4">
+                <button
+                  onClick={handleResumePreviousExam}
+                  className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 px-6 rounded-lg transition-colors duration-200 text-lg flex items-center justify-center gap-2"
+                >
+                  <span>📖 이전 시험 계속하기</span>
+                </button>
+                <div className="mt-2 text-center text-sm text-gray-600">
+                  진행 상황: {Object.keys(previousSession.answers || {}).length} / {previousSession.questions.length} 문제 풀이 완료
+                </div>
+              </div>
+            )}
+
+            {/* 시작 버튼 */}
+            <button
+              onClick={handleStartExam}
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-bold py-4 px-6 rounded-lg transition-colors duration-200 text-lg"
+            >
+              {loading ? '문제 불러오는 중...' : '🚀 시험 시작'}
+            </button>
+
+            {/* 안내 문구 */}
+            <p className="text-center text-sm text-gray-500 mt-6">
+              ⚠️ 시험이 시작되면 타이머가 작동하며, 60분 후 자동으로 제출됩니다.
+            </p>
+        </>
+
+      </div>
+    </div>
+  );
+}

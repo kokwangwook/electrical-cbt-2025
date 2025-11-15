@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npm run build:*)",
+      "Bash(awk:*)",
+      "Bash(npm install:*)",
+      "Bash(node scripts/import-pdfs.js:*)",
+      "Bash(move import-pdfs.js import-pdfs.cjs)",
+      "Bash(node scripts/import-pdfs.cjs:*)",
+      "Bash(node:*)",
+      "Bash(start http://localhost:5174/admin)",
+      "Bash(curl:*)",
+      "Bash(if exist node_modules.vite rmdir /s /q node_modules.vite)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(if not exist \"d:\\cbt\\electrical-cbt\\.claude\" mkdir \"d:\\cbt\\electrical-cbt\\.claude\")",
+      "Bash(move:*)",
+      "Bash(start http://localhost:5173/admin)",
+      "Bash(cmd /c \"taskkill /F /PID 31348\")",
+      "Bash(npx kill-port 5173)",
+      "Bash(npx tsc:*)",
+      "Bash(cmd /c dir:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
