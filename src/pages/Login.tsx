@@ -6,9 +6,10 @@ interface LoginProps {
   onLoginSuccess: () => void;
   onGuestMode: () => void;
   onResumeExam?: () => void;
+  onGoToRegister?: () => void;
 }
 
-export default function Login({ onLoginSuccess, onGuestMode, onResumeExam }: LoginProps) {
+export default function Login({ onLoginSuccess, onGuestMode, onResumeExam, onGoToRegister }: LoginProps) {
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -208,13 +209,25 @@ export default function Login({ onLoginSuccess, onGuestMode, onResumeExam }: Log
           👤 게스트로 시작 (기록 저장 안됨)
         </button>
 
+        {/* 회원가입 버튼 */}
+        {onGoToRegister && (
+          <div className="mt-4">
+            <button
+              onClick={onGoToRegister}
+              className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg transition-colors duration-200"
+            >
+              📝 회원가입
+            </button>
+          </div>
+        )}
+
         {/* 안내 */}
         <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
           <p className="text-sm text-blue-800">
-            💡 <strong>회원 등록은 관리자에게 문의하세요</strong>
+            💡 <strong>회원가입 후 로그인하시면 학습 기록이 저장됩니다</strong>
           </p>
           <p className="text-xs text-blue-600 mt-2">
-            로그인하면 시험 기록이 자동으로 저장됩니다.
+            게스트 모드는 기록이 저장되지 않습니다.
           </p>
         </div>
 

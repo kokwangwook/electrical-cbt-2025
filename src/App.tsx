@@ -4,13 +4,14 @@ import Home from './pages/Home';
 import Exam from './pages/Exam';
 import Result from './pages/Result';
 import Login from './pages/Login';
+import Register from './pages/Register';
 import Admin from './pages/Admin';
 import WrongAnswers from './pages/WrongAnswers';
 import Statistics from './pages/Statistics';
 import { getCurrentUser, initializeData, saveCurrentExamSession, getCurrentExamSession, getQuestions } from './services/storage';
 import type { ExamSession } from './types';
 
-type AppState = 'login' | 'home' | 'exam' | 'result' | 'admin' | 'wrongAnswers' | 'statistics';
+type AppState = 'login' | 'register' | 'home' | 'exam' | 'result' | 'admin' | 'wrongAnswers' | 'statistics';
 
 function App() {
   const [state, setState] = useState<AppState>('login');
@@ -72,6 +73,18 @@ function App() {
 
   const handleGuestMode = () => {
     setState('home');
+  };
+
+  const handleGoToRegister = () => {
+    setState('register');
+  };
+
+  const handleRegisterSuccess = () => {
+    setState('login');
+  };
+
+  const handleBackToLogin = () => {
+    setState('login');
   };
 
   const handleStartExam = (selectedQuestions: Question[], mode: 'timedRandom' | 'untimedRandom' | 'category' | 'wrong') => {
@@ -159,7 +172,17 @@ function App() {
   return (
     <div>
       {state === 'login' && (
-        <Login onLoginSuccess={handleLoginSuccess} onGuestMode={handleGuestMode} />
+        <Login
+          onLoginSuccess={handleLoginSuccess}
+          onGuestMode={handleGuestMode}
+          onGoToRegister={handleGoToRegister}
+        />
+      )}
+      {state === 'register' && (
+        <Register
+          onRegisterSuccess={handleRegisterSuccess}
+          onBackToLogin={handleBackToLogin}
+        />
       )}
       {state === 'home' && (
         <Home

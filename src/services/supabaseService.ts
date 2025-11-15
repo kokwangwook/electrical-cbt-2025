@@ -164,3 +164,61 @@ export const getLoginHistory = async (): Promise<LoginHistory[]> => {
     return [];
   }
 };
+
+/**
+ * 회원 정보 저장 (Supabase)
+ */
+export const saveMemberToSupabase = async (member: {
+  id: number;
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+  registeredAt: number;
+}): Promise<boolean> => {
+  try {
+    const { error } = await supabase.from('members').insert({
+      id: member.id,
+      name: member.name,
+      phone: member.phone,
+      email: member.email,
+      address: member.address,
+      registered_at: member.registeredAt,
+      created_at: new Date().toISOString()
+    });
+
+    if (error) {
+      console.error('회원 저장 실패:', error);
+      return false;
+    }
+
+    console.log('✅ 회원 저장 완료:', member.name);
+    return true;
+  } catch (err) {
+    console.error('회원 저장 오류:', err);
+    return false;
+  }
+};
+
+/**
+ * 이메일 중복 확인
+ */
+export const checkEmailExists = async (email: string): Promise<boolean> => {
+  try {
+    const { data, error } = await supabase
+      .from('members')
+      .select('id')
+      .eq('email', email)
+      .limit(1);
+
+    if (error) {
+      console.error('이메일 확인 실패:', error);
+      return false;
+    }
+
+    return (data && data.length > 0);
+  } catch (err) {
+    console.error('이메일 확인 오류:', err);
+    return false;
+  }
+};
