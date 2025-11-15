@@ -164,7 +164,7 @@ export default function Result({ questions, answers, timeSpent, mode = 'timedRan
         </div>
 
         {/* 버튼 그룹 */}
-        <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className="grid grid-cols-3 gap-4 mb-6">
           <button
             onClick={onRestart}
             className="px-6 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors text-lg"
@@ -176,6 +176,12 @@ export default function Result({ questions, answers, timeSpent, mode = 'timedRan
             className="px-6 py-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors text-lg"
           >
             📝 해설 보기
+          </button>
+          <button
+            onClick={onRestart}
+            className="px-6 py-4 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-semibold transition-colors text-lg"
+          >
+            ← 나가기
           </button>
         </div>
 

@@ -535,7 +535,7 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
     }, 100);
   };
 
-  // 나가기 버튼: 자동 저장 + 나가기
+  // 나가기 버튼: 현재까지의 답변 기준으로 채점 화면으로 이동
   const handleExit = () => {
     try {
       // 실전 모의고사 모드는 세션 저장하지 않음 (한번 끝나면 다시 계속할 수 없음)
@@ -569,12 +569,104 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
       if (isNewWindow && examMode === 'timedRandom') {
         // 새 창 닫기
         window.close();
-      } else {
-        // 현재 창에서 나가기
-        onExit();
+        return;
       }
+      
+      // 현재까지의 답변 기준으로 채점 화면으로 이동 (handleSubmit과 유사한 로직)
+      console.log('📊 나가기 버튼 클릭 - 현재 답변 기준으로 채점 화면으로 이동');
+      
+      // 채점 결과 계산 및 오답 저장
+      let correctCount = 0;
+      let wrongCount = 0;
+      let unansweredCount = 0;
+      const wrongQuestions: number[] = [];
+      const isWrongMode = examMode === 'wrong';
+
+      displayQuestions.forEach(q => {
+        const userAnswer = answers[q.id];
+        if (userAnswer === undefined || userAnswer === null) {
+          unansweredCount++;
+        } else {
+          if (userAnswer === q.answer) {
+            correctCount++;
+            // 오답노트 모드일 때는 정답을 맞춘 문제를 즉시 제거
+            if (isWrongMode) {
+              const currentWrongAnswers = getWrongAnswers();
+              const existsInWrongAnswers = currentWrongAnswers.some(wa => wa.questionId === q.id);
+              if (existsInWrongAnswers) {
+                removeWrongAnswer(q.id);
+                console.log(`✅ 정답: 문제 ${q.id} (${q.category}) - 오답노트에서 즉시 제거`);
+              }
+            } else {
+              // 일반 모드일 때는 correctStreak++, 3회 연속 시 오답노트에서 제거
+              updateCorrectAnswer(q.id);
+              console.log(`✅ 정답: 문제 ${q.id} (${q.category})`);
+            }
+          } else {
+            wrongCount++;
+            wrongQuestions.push(q.id);
+            // 오답 처리: wrongCount++, correctStreak=0
+            const wrongAnswer: WrongAnswer = {
+              questionId: q.id,
+              question: q,
+              userAnswer,
+              timestamp: Date.now(),
+              wrongCount: 1,
+              correctStreak: 0,
+            };
+            console.log(`❌ 오답 저장 시도: 문제 ${q.id} (${q.category}) - 사용자 답변: ${userAnswer}, 정답: ${q.answer}`);
+            addWrongAnswer(wrongAnswer);
+            console.log(`✅ 오답 저장 완료: 문제 ${q.id} (${q.category})`);
+          }
+        }
+      });
+
+      console.log('📊 오답 저장 완료 - 저장된 오답 수:', getWrongAnswers().length);
+
+      // ExamResult 저장 (allQuestions는 용량 문제로 제거 - 문제 ID만 저장)
+      const result: ExamResult = {
+        totalQuestions: displayQuestions.length,
+        correctAnswers: correctCount,
+        wrongQuestions,
+        timestamp: Date.now(),
+        mode: examMode as any,
+        category: undefined,
+      };
+
+      // ExamResult 저장 시도 (에러가 발생해도 채점 화면으로 이동)
+      try {
+        addExamResult(result);
+        updateStatistics(result);
+      } catch (error) {
+        console.error('❌ 시험 결과 저장 실패:', error);
+        // localStorage 용량 초과 시 오래된 결과 삭제 후 재시도
+        if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+          try {
+            const results = getExamResults();
+            // 오래된 결과 50% 삭제 (가장 오래된 것부터)
+            const sortedResults = results.sort((a, b) => a.timestamp - b.timestamp);
+            const keepCount = Math.floor(sortedResults.length / 2);
+            const keptResults = sortedResults.slice(-keepCount);
+            saveExamResults(keptResults);
+            console.log(`🗑️ 오래된 시험 결과 ${sortedResults.length - keepCount}개 삭제`);
+            
+            // 재시도
+            addExamResult(result);
+            updateStatistics(result);
+          } catch (retryError) {
+            console.error('❌ 시험 결과 저장 재시도 실패:', retryError);
+            // 그래도 채점 화면으로 이동
+          }
+        }
+      }
+      
+      clearCurrentExamSession();
+
+      // 결과 페이지로 이동 (answers를 배열로 변환)
+      const answersArray: (number | null)[] = displayQuestions.map(q => answers[q.id] || null);
+      onComplete(answersArray, examMode as any);
     } catch (error) {
-      console.error('❌ 시험 현황 저장 실패:', error);
+      console.error('❌ 나가기 처리 실패:', error);
       // 저장 실패해도 나가기는 진행 (사용자 경험)
       alert('⚠️ 시험 현황 저장에 실패했습니다. 진행 상황이 손실될 수 있습니다.');
       
