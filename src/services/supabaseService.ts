@@ -242,6 +242,109 @@ export const checkEmailExists = async (email: string): Promise<boolean> => {
 };
 
 /**
+ * 모든 회원 가져오기 (Supabase)
+ */
+export const fetchAllMembersFromSupabase = async (): Promise<Array<{
+  id: number;
+  name: string;
+  phone: string;
+  email?: string;
+  address: string;
+  registeredAt: number;
+  memo?: string;
+}>> => {
+  try {
+    const { data, error } = await supabase
+      .from('members')
+      .select('*')
+      .order('id', { ascending: true });
+
+    if (error) {
+      console.error('회원 목록 조회 실패:', error);
+      return [];
+    }
+
+    if (!data || data.length === 0) {
+      console.log('ℹ️ Supabase에 회원이 없습니다.');
+      return [];
+    }
+
+    // Supabase 형식을 로컬 형식으로 변환
+    return data.map(m => ({
+      id: m.id,
+      name: m.name,
+      phone: m.phone,
+      email: m.email || undefined,
+      address: m.address || '',
+      registeredAt: m.registered_at || Date.now(),
+      memo: m.memo || ''
+    }));
+  } catch (err) {
+    console.error('회원 목록 조회 오류:', err);
+    return [];
+  }
+};
+
+/**
+ * 회원 정보 업데이트 (Supabase)
+ */
+export const updateMemberInSupabase = async (member: {
+  id: number;
+  name: string;
+  phone: string;
+  email?: string;
+  address: string;
+  memo?: string;
+}): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('members')
+      .update({
+        name: member.name,
+        phone: member.phone,
+        email: member.email,
+        address: member.address,
+        memo: member.memo
+      })
+      .eq('id', member.id);
+
+    if (error) {
+      console.error('회원 업데이트 실패:', error);
+      return false;
+    }
+
+    console.log('✅ 회원 업데이트 완료:', member.name);
+    return true;
+  } catch (err) {
+    console.error('회원 업데이트 오류:', err);
+    return false;
+  }
+};
+
+/**
+ * 회원 삭제 (Supabase)
+ */
+export const deleteMemberFromSupabase = async (id: number): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('members')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('회원 삭제 실패:', error);
+      return false;
+    }
+
+    console.log('✅ 회원 삭제 완료:', id);
+    return true;
+  } catch (err) {
+    console.error('회원 삭제 오류:', err);
+    return false;
+  }
+};
+
+/**
  * 문제 일괄 삽입 (Supabase) - 핵심 필드만
  */
 export const insertQuestions = async (

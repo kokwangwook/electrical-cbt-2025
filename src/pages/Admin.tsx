@@ -44,6 +44,8 @@ import {
   fetchQuestionsFromGoogleSheet,
   parseCSVToQuestions,
   getCategoryCounts,
+  updateMemberInSupabase,
+  deleteMemberFromSupabase,
 } from '../services/supabaseService';
 import { useFeedbacks } from '../hooks/useFeedbacks';
 
@@ -591,20 +593,47 @@ export default function Admin() {
   };
 
   // 회원 수정
-  const handleUpdateMember = () => {
+  const handleUpdateMember = async () => {
     if (!editingMember) return;
+
+    // 로컬 스토리지 업데이트
     updateMember(editingMember);
+
+    // Supabase 업데이트 (비동기)
+    const supabaseSuccess = await updateMemberInSupabase({
+      id: editingMember.id,
+      name: editingMember.name,
+      phone: editingMember.phone,
+      email: editingMember.email,
+      address: editingMember.address,
+      memo: editingMember.memo
+    });
+
     loadMembers();
     setShowEditMemberModal(false);
     setEditingMember(null);
-    alert('회원 정보가 수정되었습니다.');
+
+    if (supabaseSuccess) {
+      alert('회원 정보가 수정되었습니다. (서버 동기화 완료)');
+    } else {
+      alert('회원 정보가 로컬에 수정되었습니다. (서버 동기화 실패 - 나중에 다시 시도해주세요)');
+    }
   };
 
   // 회원 삭제
-  const handleDeleteMember = (id: number) => {
+  const handleDeleteMember = async (id: number) => {
     if (window.confirm('이 회원을 삭제하시겠습니까?')) {
+      // 로컬 스토리지에서 삭제
       deleteMember(id);
+
+      // Supabase에서도 삭제 (비동기)
+      const supabaseSuccess = await deleteMemberFromSupabase(id);
+
       loadMembers();
+
+      if (!supabaseSuccess) {
+        console.warn('⚠️ Supabase에서 회원 삭제 실패');
+      }
     }
   };
 
