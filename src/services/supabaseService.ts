@@ -249,12 +249,30 @@ export const insertQuestions = async (
 ): Promise<{ success: number; failed: number; errors: string[] }> => {
   const result = { success: 0, failed: 0, errors: [] as string[] };
 
+  // 기존 최대 ID 조회
+  let maxId = 0;
+  try {
+    const { data: maxData } = await supabase
+      .from('questions')
+      .select('id')
+      .order('id', { ascending: false })
+      .limit(1);
+
+    if (maxData && maxData.length > 0) {
+      maxId = maxData[0].id;
+    }
+  } catch (err) {
+    console.warn('최대 ID 조회 실패:', err);
+  }
+
   // 첫 번째 삽입 시도로 스키마 확인
   if (questions.length > 0) {
     const firstQ = questions[0];
+    const newId = maxId + 1;
 
-    // 먼저 모든 필드로 시도
+    // 먼저 모든 필드로 시도 (ID 포함)
     const fullInsertData: Record<string, unknown> = {
+      id: newId,
       category: firstQ.category,
       question: firstQ.question,
       option1: firstQ.option1,
@@ -278,6 +296,7 @@ export const insertQuestions = async (
 
       // 핵심 필드만으로 재시도 (weight 포함)
       const coreInsertData: Record<string, unknown> = {
+        id: newId,
         category: firstQ.category,
         question: firstQ.question,
         option1: firstQ.option1,
@@ -298,13 +317,16 @@ export const insertQuestions = async (
         return result; // 첫 번째도 실패하면 중단
       } else {
         result.success++;
+        maxId = newId; // 성공 시 maxId 업데이트
         console.log('✅ 핵심 필드만으로 삽입 성공, 나머지도 같은 방식으로 진행');
 
         // 나머지 문제들을 핵심 필드만으로 삽입 (weight 포함)
         for (let i = 1; i < questions.length; i++) {
           const q = questions[i];
+          const currentId = maxId + i;
           try {
             const { error } = await supabase.from('questions').insert({
+              id: currentId,
               category: q.category,
               question: q.question,
               option1: q.option1,
@@ -335,6 +357,7 @@ export const insertQuestions = async (
       }
     } else {
       result.success++;
+      maxId = newId; // 성공 시 maxId 업데이트
       console.log('✅ 선택적 필드 포함하여 삽입 성공');
     }
   }
@@ -342,8 +365,10 @@ export const insertQuestions = async (
   // 나머지 문제들 (첫 번째가 성공한 경우)
   for (let i = 1; i < questions.length; i++) {
     const q = questions[i];
+    const currentId = maxId + i;
     try {
       const insertData: Record<string, unknown> = {
+        id: currentId,
         category: q.category,
         question: q.question,
         option1: q.option1,
