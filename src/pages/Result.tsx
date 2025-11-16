@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
-import type { Question, WrongAnswer } from '../types';
-import { addWrongAnswer, updateCorrectAnswer, removeWrongAnswer } from '../services/storage';
+import { useState } from 'react';
+import type { Question } from '../types';
 import LatexRenderer from '../components/LatexRenderer';
 import { getStandardTitle } from '../data/examStandards';
 
@@ -24,59 +23,8 @@ export default function Result({ questions, answers, timeSpent, mode = 'timedRan
   const passed = score >= 60;
   const isWrongMode = mode === 'wrong';
 
-  // 오답 노트 저장 (컴포넌트 마운트 시 한 번만 실행)
-  // Exam.tsx에서 이미 저장하지만, 혹시 모를 경우를 대비해 여기서도 저장
-  useEffect(() => {
-    console.log('📊 Result.tsx - 오답 저장 로직 실행');
-    console.log('📋 총 문제 수:', questions.length);
-    console.log('📋 답변 배열 길이:', answers.length);
-    console.log('📋 답변 데이터:', answers);
-    console.log('📋 시험 모드:', mode);
-
-    const isWrongMode = mode === 'wrong';
-    let savedCount = 0;
-    let removedCount = 0;
-
-    questions.forEach((q, i) => {
-      const userAnswer = answers[i];
-      console.log(`문제 ${q.id} (${q.category}): 배열 인덱스=${i}, 사용자 답변=${userAnswer}, 정답=${q.answer}`);
-      
-      // 사용자가 답변을 선택했고, 틀린 경우에만 오답 저장
-      if (userAnswer !== null && userAnswer !== undefined && userAnswer !== q.answer) {
-        // 오답 처리: wrongCount++, correctStreak=0
-        const wrongAnswer: WrongAnswer = {
-          questionId: q.id,
-          question: q,
-          userAnswer,
-          timestamp: Date.now(),
-          wrongCount: 1,
-          correctStreak: 0,
-        };
-        console.log(`❌ 오답 저장 시도: 문제 ${q.id} (${q.category}) - 사용자 답변: ${userAnswer}, 정답: ${q.answer}`);
-        addWrongAnswer(wrongAnswer);
-        savedCount++;
-        console.log(`✅ 오답 저장 완료: 문제 ${q.id} (${q.category})`);
-      } else if (userAnswer === q.answer) {
-        // 오답노트 모드일 때는 정답을 맞춘 문제를 즉시 제거
-        if (isWrongMode) {
-          removeWrongAnswer(q.id);
-          removedCount++;
-          console.log(`✅ 정답: 문제 ${q.id} (${q.category}) - 오답노트에서 즉시 제거`);
-        } else {
-          // 일반 모드일 때는 correctStreak++, 3회 연속 시 오답노트에서 제거
-          updateCorrectAnswer(q.id);
-          console.log(`✅ 정답: 문제 ${q.id} (${q.category})`);
-        }
-      } else {
-        console.log(`⚠️ 오답 저장 안됨: 문제 ${q.id} (${q.category}) - 사용자 답변: ${userAnswer} (답변 없음)`);
-      }
-    });
-    
-    console.log(`📊 Result.tsx - 오답 저장 완료: ${savedCount}개 오답 저장됨`);
-    if (isWrongMode) {
-      console.log(`📊 Result.tsx - 오답노트에서 제거: ${removedCount}개 문제 제거됨`);
-    }
-  }, []); // 빈 배열로 한 번만 실행
+  // 오답 노트 저장은 Exam.tsx에서 이미 완료됨
+  // 중복 저장 방지를 위해 Result.tsx에서는 저장하지 않음
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
