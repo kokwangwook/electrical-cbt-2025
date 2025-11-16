@@ -898,3 +898,38 @@ export const fetchUserDataFromSupabase = async (
     return null;
   }
 };
+
+/**
+ * 모든 사용자 학습 데이터 불러오기 (관리자용)
+ */
+export const fetchAllUserDataFromSupabase = async (): Promise<Array<{
+  userId: number;
+  wrongAnswers: unknown[];
+  examResults: unknown[];
+  statistics: unknown;
+  updatedAt: string;
+}>> => {
+  try {
+    const { data, error } = await supabase
+      .from('user_data')
+      .select('*')
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      console.error('모든 사용자 데이터 불러오기 실패:', error);
+      return [];
+    }
+
+    console.log('✅ 모든 사용자 데이터 불러오기 완료:', data?.length || 0, '명');
+    return (data || []).map(record => ({
+      userId: record.user_id,
+      wrongAnswers: record.wrong_answers || [],
+      examResults: record.exam_results || [],
+      statistics: record.statistics || null,
+      updatedAt: record.updated_at || ''
+    }));
+  } catch (err) {
+    console.error('모든 사용자 데이터 불러오기 오류:', err);
+    return [];
+  }
+};
