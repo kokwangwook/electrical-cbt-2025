@@ -45,7 +45,7 @@ export default function Login({ onLoginSuccess, onResumeExam, onGoToRegister }: 
       if (allMembers.length === 0) {
         errorMessage = '등록된 회원이 없습니다. 회원가입을 먼저 해주세요.';
       } else {
-        errorMessage = `등록되지 않은 사용자입니다.\n\n입력한 값: "${trimmedInput}"\n\n등록된 회원 목록:\n${allMembers.map((m, i) => `${i + 1}. ${m.name} (${m.phone}${m.email ? `, ${m.email}` : ''})`).join('\n')}\n\n※ 이름, 전화번호 또는 이메일 주소 중 하나를 입력하세요.`;
+        errorMessage = `등록되지 않은 사용자입니다.\n\n입력한 값: "${trimmedInput}"\n\n※ 이름, 전화번호 또는 이메일 주소 중 하나를 정확히 입력하세요.\n※ 회원가입이 필요하시면 아래 '회원가입' 버튼을 눌러주세요.`;
       }
       
       setError(errorMessage);
