@@ -222,3 +222,72 @@ export const checkEmailExists = async (email: string): Promise<boolean> => {
     return false;
   }
 };
+
+/**
+ * 모든 문제 가져오기 (관리자용)
+ * 페이지네이션을 사용하여 대용량 데이터 처리
+ */
+export const fetchAllQuestions = async (): Promise<Question[]> => {
+  try {
+    console.log('📥 Supabase에서 모든 문제 가져오기 시작...');
+
+    const allQuestions: Question[] = [];
+    const pageSize = 1000; // Supabase 기본 limit
+    let offset = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('questions')
+        .select('*')
+        .order('id', { ascending: true })
+        .range(offset, offset + pageSize - 1);
+
+      if (error) {
+        console.error('문제 조회 실패:', error);
+        throw error;
+      }
+
+      if (!data || data.length === 0) {
+        hasMore = false;
+      } else {
+        // Supabase 형식을 로컬 형식으로 변환
+        const convertedQuestions = data.map(q => ({
+          id: q.id,
+          category: q.category,
+          standard: q.standard || undefined,
+          detailItem: q.detailItem || undefined,
+          question: q.question,
+          option1: q.option1,
+          option2: q.option2,
+          option3: q.option3,
+          option4: q.option4,
+          answer: q.answer,
+          explanation: q.explanation,
+          imageUrl: q.imageUrl || undefined,
+          hasImage: q.hasImage || false,
+          mustInclude: q.mustInclude || false,
+          mustExclude: q.mustExclude || false,
+          weight: q.weight || 5,
+          source: q.source || undefined
+        }));
+
+        allQuestions.push(...convertedQuestions);
+        offset += pageSize;
+
+        console.log(`📊 ${allQuestions.length}개 문제 로드됨...`);
+
+        // 가져온 데이터가 pageSize보다 적으면 더 이상 없음
+        if (data.length < pageSize) {
+          hasMore = false;
+        }
+      }
+    }
+
+    console.log(`✅ 총 ${allQuestions.length}개 문제 로드 완료`);
+    return allQuestions;
+  } catch (err) {
+    console.error('모든 문제 조회 오류:', err);
+    return [];
+  }
+};
