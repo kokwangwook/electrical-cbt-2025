@@ -260,6 +260,9 @@ export const insertQuestions = async (
 
     if (maxData && maxData.length > 0) {
       maxId = maxData[0].id;
+      console.log('✅ 현재 최대 ID:', maxId);
+    } else {
+      console.log('ℹ️ 문제가 없어서 ID 1부터 시작합니다.');
     }
   } catch (err) {
     console.warn('최대 ID 조회 실패:', err);
@@ -269,6 +272,7 @@ export const insertQuestions = async (
   if (questions.length > 0) {
     const firstQ = questions[0];
     const newId = maxId + 1;
+    console.log('🔢 새 ID 생성:', newId);
 
     // 먼저 모든 필드로 시도 (ID 포함)
     const fullInsertData: Record<string, unknown> = {
