@@ -18,7 +18,7 @@ function App() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<(number | null)[]>([]);
   const [startTime, setStartTime] = useState<number>(0);
-  const [examMode, setExamMode] = useState<'timedRandom' | 'untimedRandom' | 'category' | 'wrong'>('timedRandom');
+  const [examMode, setExamMode] = useState<'timedRandom' | 'untimedRandom' | 'category' | 'wrong' | 'review'>('timedRandom');
 
   // 초기화
   useEffect(() => {
@@ -71,6 +71,30 @@ function App() {
     setState('home');
   };
 
+  // 로그인 시 이전 세션 복원
+  const handleResumeExam = () => {
+    const session = getCurrentExamSession();
+    if (session && session.questions && session.questions.length > 0) {
+      // 세션의 문제에 이미지 복원
+      const allQuestions = getQuestions();
+      const questionsWithImages = session.questions.map(sessionQ => {
+        const originalQ = allQuestions.find(q => q.id === sessionQ.id);
+        if (originalQ && originalQ.imageUrl) {
+          return { ...sessionQ, imageUrl: originalQ.imageUrl };
+        }
+        return sessionQ;
+      });
+
+      setQuestions(questionsWithImages);
+      setExamMode(session.mode || 'untimedRandom');
+      setStartTime(session.startTime || Date.now());
+      setState('exam');
+      console.log('✅ 이전 시험 세션 복원 완료 (이미지 포함)');
+    } else {
+      // 세션이 없으면 홈으로
+      setState('home');
+    }
+  };
 
   const handleGoToRegister = () => {
     setState('register');
@@ -84,11 +108,11 @@ function App() {
     setState('login');
   };
 
-  const handleStartExam = (selectedQuestions: Question[], mode: 'timedRandom' | 'untimedRandom' | 'category' | 'wrong') => {
+  const handleStartExam = (selectedQuestions: Question[], mode: 'timedRandom' | 'untimedRandom' | 'category' | 'wrong' | 'review') => {
     setQuestions(selectedQuestions);
     setExamMode(mode);
     setStartTime(Date.now());
-    
+
     // 세션에 모드 저장
     const session: ExamSession = {
       questions: selectedQuestions,
@@ -98,7 +122,7 @@ function App() {
       userId: getCurrentUser() || undefined,
     };
     saveCurrentExamSession(session);
-    
+
     setState('exam');
   };
 
@@ -190,6 +214,7 @@ function App() {
       {state === 'login' && (
         <Login
           onLoginSuccess={handleLoginSuccess}
+          onResumeExam={handleResumeExam}
           onGoToRegister={handleGoToRegister}
         />
       )}
