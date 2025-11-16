@@ -43,6 +43,7 @@ import {
   insertQuestions,
   fetchQuestionsFromGoogleSheet,
   parseCSVToQuestions,
+  getCategoryCounts,
 } from '../services/supabaseService';
 import { useFeedbacks } from '../hooks/useFeedbacks';
 
@@ -127,6 +128,15 @@ export default function Admin() {
   const [supabaseUsageStats, setSupabaseUsageStats] = useState<SupabaseUsageStats | null>(null);
   const [isLoadingUsage, setIsLoadingUsage] = useState(false);
 
+  // 서버 기반 문제 수
+  const [serverQuestionCounts, setServerQuestionCounts] = useState<{
+    total: number;
+    전기이론: number;
+    전기기기: number;
+    전기설비: number;
+  } | null>(null);
+  const [isLoadingServerCounts, setIsLoadingServerCounts] = useState(false);
+
   // 새 문제 폼
   const [newQuestion, setNewQuestion] = useState({
     category: '전기이론',
@@ -185,6 +195,7 @@ export default function Admin() {
       loadMembers();
       loadLoginHistory();
       loadFeedbacks();
+      loadServerQuestionCounts(); // 서버에서 문제 수 로드
     }
   }, [isAuthenticated]);
 
@@ -207,6 +218,21 @@ export default function Admin() {
     // 최신 문제가 맨 위로 오도록 ID 내림차순 정렬
     const sortedQuestions = [...allQuestions].sort((a, b) => b.id - a.id);
     setQuestions(sortedQuestions);
+  };
+
+  // 서버에서 문제 수 로드
+  const loadServerQuestionCounts = async () => {
+    setIsLoadingServerCounts(true);
+    try {
+      const counts = await getCategoryCounts();
+      setServerQuestionCounts(counts);
+      console.log('📊 서버 문제 현황:', counts);
+    } catch (error) {
+      console.error('서버 문제 수 로드 실패:', error);
+      setServerQuestionCounts(null);
+    } finally {
+      setIsLoadingServerCounts(false);
+    }
   };
 
   const loadMembers = () => {
@@ -1316,22 +1342,40 @@ export default function Admin() {
           <div>
             {/* 문제 현황 */}
             <div className="bg-white rounded-lg shadow-md p-4 mb-6">
-              <h2 className="text-lg font-bold text-gray-800 mb-3">📊 문제 현황</h2>
+              <h2 className="text-lg font-bold text-gray-800 mb-3">
+                📊 문제 현황
+                {isLoadingServerCounts && <span className="text-sm text-gray-500 ml-2">(로딩 중...)</span>}
+                <button
+                  onClick={loadServerQuestionCounts}
+                  className="ml-2 text-sm text-blue-500 hover:text-blue-700"
+                  disabled={isLoadingServerCounts}
+                >
+                  🔄 새로고침
+                </button>
+              </h2>
               <div className="grid grid-cols-5 gap-4">
                 <div className="text-center p-3 bg-blue-50 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-600">{questionStats.전체}</div>
+                  <div className="text-2xl font-bold text-blue-600">
+                    {serverQuestionCounts?.total ?? questionStats.전체}
+                  </div>
                   <div className="text-sm text-gray-600">전체 문제</div>
                 </div>
                 <div className="text-center p-3 bg-green-50 rounded-lg">
-                  <div className="text-2xl font-bold text-green-600">{questionStats.전기이론}</div>
+                  <div className="text-2xl font-bold text-green-600">
+                    {serverQuestionCounts?.전기이론 ?? questionStats.전기이론}
+                  </div>
                   <div className="text-sm text-gray-600">전기이론</div>
                 </div>
                 <div className="text-center p-3 bg-yellow-50 rounded-lg">
-                  <div className="text-2xl font-bold text-yellow-600">{questionStats.전기기기}</div>
+                  <div className="text-2xl font-bold text-yellow-600">
+                    {serverQuestionCounts?.전기기기 ?? questionStats.전기기기}
+                  </div>
                   <div className="text-sm text-gray-600">전기기기</div>
                 </div>
                 <div className="text-center p-3 bg-purple-50 rounded-lg">
-                  <div className="text-2xl font-bold text-purple-600">{questionStats.전기설비}</div>
+                  <div className="text-2xl font-bold text-purple-600">
+                    {serverQuestionCounts?.전기설비 ?? questionStats.전기설비}
+                  </div>
                   <div className="text-sm text-gray-600">전기설비</div>
                 </div>
                 <div className="text-center p-3 bg-gray-50 rounded-lg">
