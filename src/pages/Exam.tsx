@@ -1567,15 +1567,13 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
                   🖨️ 인쇄
                 </button>
               )}
-              {/* 저장하기 버튼 - 모바일에서는 숨김 */}
-              {!isMobile && (
-                <button
-                  onClick={handleSave}
-                  className="px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
-                >
-                  💾 저장하기
-                </button>
-              )}
+              {/* 저장하기 버튼 */}
+              <button
+                onClick={handleSave}
+                className="px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+              >
+                💾 저장하기
+              </button>
               {/* 시간 초기화 버튼 (시간 제한이 있는 모드만 표시) */}
               {examMode !== 'untimedRandom' && (
                 <button

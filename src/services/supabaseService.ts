@@ -108,6 +108,19 @@ export const getCategoryCounts = async (): Promise<{
 };
 
 /**
+ * IP 주소 가져오기 (외부 API 사용)
+ */
+const getClientIP = async (): Promise<string> => {
+  try {
+    const response = await fetch('https://api.ipify.org?format=json');
+    const data = await response.json();
+    return data.ip || 'Unknown';
+  } catch {
+    return 'Unknown';
+  }
+};
+
+/**
  * 로그인 기록 저장 (Supabase)
  */
 export const saveLoginHistory = async (
@@ -116,11 +129,15 @@ export const saveLoginHistory = async (
   userAgent?: string
 ): Promise<boolean> => {
   try {
+    // IP 주소 가져오기
+    const ipAddress = await getClientIP();
+
     const { error } = await supabase.from('login_history').insert({
       user_id: userId,
       user_name: userName,
       timestamp: Date.now(),
-      user_agent: userAgent || navigator.userAgent
+      user_agent: userAgent || navigator.userAgent,
+      ip_address: ipAddress
     });
 
     if (error) {
@@ -128,7 +145,7 @@ export const saveLoginHistory = async (
       return false;
     }
 
-    console.log('✅ 로그인 기록 저장 완료:', userName);
+    console.log('✅ 로그인 기록 저장 완료:', userName, '(IP:', ipAddress, ')');
     return true;
   } catch (err) {
     console.error('로그인 기록 저장 오류:', err);
@@ -157,7 +174,8 @@ export const getLoginHistory = async (): Promise<LoginHistory[]> => {
       userId: record.user_id,
       userName: record.user_name,
       timestamp: record.timestamp,
-      userAgent: record.user_agent
+      userAgent: record.user_agent,
+      ipAddress: record.ip_address || undefined
     }));
   } catch (err) {
     console.error('로그인 기록 조회 오류:', err);

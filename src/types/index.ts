@@ -111,4 +111,5 @@ export interface LoginHistory {
   userName: string; // 회원 이름
   timestamp: number; // 로그인 시간 (timestamp)
   userAgent?: string; // 브라우저 정보 (선택)
+  ipAddress?: string; // IP 주소 (선택)
 }

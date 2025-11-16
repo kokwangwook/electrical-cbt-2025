@@ -145,6 +145,31 @@ export default function Admin() {
     memo: '',
   });
 
+  // UserAgent를 기기 타입으로 변환하는 함수
+  const getDeviceType = (userAgent?: string): string => {
+    if (!userAgent) return 'Unknown';
+
+    const ua = userAgent.toLowerCase();
+
+    // 태블릿 체크 (태블릿은 모바일보다 먼저 체크)
+    if (ua.includes('ipad') ||
+        (ua.includes('tablet') && !ua.includes('mobile')) ||
+        (ua.includes('android') && !ua.includes('mobile'))) {
+      return '태블릿';
+    }
+
+    // 스마트폰 체크
+    if (ua.includes('mobile') ||
+        ua.includes('iphone') ||
+        ua.includes('ipod') ||
+        (ua.includes('android') && ua.includes('mobile'))) {
+      return '스마트폰';
+    }
+
+    // PC
+    return 'PC';
+  };
+
   useEffect(() => {
     if (isAuthenticated) {
       loadQuestions();
@@ -2618,7 +2643,8 @@ export default function Admin() {
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">회원 이름</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">회원 ID</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">로그인 시간</th>
-                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">브라우저 정보</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">기기 유형</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">IP 주소</th>
                         <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700">작업</th>
                       </tr>
                     </thead>
@@ -2638,8 +2664,18 @@ export default function Admin() {
                               second: '2-digit',
                             })}
                           </td>
-                          <td className="px-4 py-3 text-xs text-gray-500 max-w-md truncate" title={record.userAgent}>
-                            {record.userAgent || 'N/A'}
+                          <td className="px-4 py-3 text-sm font-semibold">
+                            <span className={`px-2 py-1 rounded ${
+                              getDeviceType(record.userAgent) === 'PC' ? 'bg-blue-100 text-blue-800' :
+                              getDeviceType(record.userAgent) === '태블릿' ? 'bg-green-100 text-green-800' :
+                              getDeviceType(record.userAgent) === '스마트폰' ? 'bg-purple-100 text-purple-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {getDeviceType(record.userAgent)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600">
+                            {record.ipAddress || 'N/A'}
                           </td>
                           <td className="px-4 py-3 text-center">
                             <button
