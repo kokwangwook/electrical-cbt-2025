@@ -26,9 +26,9 @@ import FeedbackBoard from '../components/FeedbackBoard';
 
 interface ExamProps {
   questions: Question[];
-  onComplete: (answers: (number | null)[], mode?: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong') => void;
+  onComplete: (answers: (number | null)[], mode?: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review') => void;
   onExit: () => void;
-  mode?: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong';
+  mode?: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review';
 }
 
 export default function Exam({ questions, onComplete, onExit, mode: propMode }: ExamProps) {
@@ -69,8 +69,8 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
   // 모드 결정: prop > savedSession > URL 파라미터 > 기본값
   const urlParams = new URLSearchParams(window.location.search);
   const urlMode = urlParams.get('mode') === 'exam' ? 'timedRandom' : null;
-  const determinedMode: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' = 
-    (propMode || savedSession?.mode || urlMode || 'untimedRandom') as 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong';
+  const determinedMode: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review' = 
+    (propMode || savedSession?.mode || urlMode || 'untimedRandom') as 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review';
   
   // 실전 모의고사 모드인지 확인
   // 실전 모의고사는 항상 새로 시작해야 하므로 세션 복원하지 않음
@@ -89,12 +89,12 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
       sortedQuestions.length > 0 &&
       savedSession.questions.length === sortedQuestions.length;
     
-    // 세션 복원 시 "완벽 이해" (value: 5)로 표시된 문제 제외
+    // 세션 복원 시 "완벽 이해" (value: 6)로 표시된 문제 제외
     if (shouldRestoreSession) {
       return sortedQuestions.filter(q => {
         const progress = globalLearningProgress[q.id];
         // "완벽 이해"가 아니거나 이해도가 없는 문제만 포함
-        return progress !== 5;
+        return progress !== 6;
       });
     }
     
@@ -169,7 +169,7 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
   );
   const [startTime, setStartTime] = useState(initialStartTime);
   const [remainingTime, setRemainingTime] = useState(initialRemainingTime);
-  const [examMode] = useState<'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong'>(initialMode as 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong');
+  const [examMode] = useState<'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review'>(initialMode as 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review');
   const [fontSize, setFontSize] = useState<100 | 150 | 200>(100);
   const [isMobile, setIsMobile] = useState(isMobileDevice());
   const [isTimeReset, setIsTimeReset] = useState(false); // 시간 초기화 여부
@@ -307,9 +307,13 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
     saveCurrentExamSession(session);
   }, [answers, learningProgress, displayQuestions, startTime, examMode]);
 
-  // 타이머
+  // 타이머 (untimedRandom 모드는 시간 제한 없음)
   useEffect(() => {
     if (displayQuestions.length === 0) return;
+    // untimedRandom 모드는 타이머 작동하지 않음
+    if (examMode === 'untimedRandom') {
+      return;
+    }
 
     const timer = setInterval(() => {
       // 시간 초기화를 한 경우: 원래 시험 시간(60분) 기준으로 계산
@@ -579,7 +583,7 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
       let correctCount = 0;
       let wrongCount = 0;
       let unansweredCount = 0;
-      const wrongQuestions: number[] = [];
+      const wrongQuestions: Question[] = [];
       const isWrongMode = examMode === 'wrong';
 
       displayQuestions.forEach(q => {
@@ -604,7 +608,7 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
             }
           } else {
             wrongCount++;
-            wrongQuestions.push(q.id);
+            wrongQuestions.push(q);
             // 오답 처리: wrongCount++, correctStreak=0
             const wrongAnswer: WrongAnswer = {
               questionId: q.id,
@@ -741,8 +745,9 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
 
   // 채점 버튼
   const handleScore = () => {
-    // 실전 모의고사 모드는 세션 저장하지 않음 (한번 끝나면 다시 계속할 수 없음)
-    if (examMode !== 'timedRandom') {
+    // 모의고사 모드: 기존 상세 모달 표시
+    if (examMode === 'timedRandom') {
+      // 실전 모의고사 모드는 기존 로직 유지
       const currentUserId = getCurrentUser();
       // 세션 자동 저장
       const session: ExamSession = {
@@ -752,123 +757,97 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
         startTime,
         mode: examMode as any,
         category: undefined,
-        userId: currentUserId || undefined, // 현재 사용자 ID 저장
+        userId: currentUserId || undefined,
       };
       saveCurrentExamSession(session);
-    }
 
-    console.log('📊 채점하기 버튼 클릭 - 오답 저장 로직 실행');
-    console.log('📋 총 문제 수:', questions.length);
-    console.log('📋 답변한 문제 수:', Object.keys(answers).length);
-    console.log('📋 답변 데이터:', answers);
-    console.log('📋 시험 모드:', examMode);
+      console.log('📊 채점하기 버튼 클릭 - 오답 저장 로직 실행');
+      console.log('📋 총 문제 수:', questions.length);
+      console.log('📋 답변한 문제 수:', Object.keys(answers).length);
+      console.log('📋 답변 데이터:', answers);
+      console.log('📋 시험 모드:', examMode);
 
-    // 오답노트 모드일 때는 다른 채점 로직 사용
-    const isWrongMode = examMode === 'wrong';
+      // 채점 결과 계산 및 오답 저장
+      let correctCount = 0;
+      let wrongCount = 0;
+      let unansweredCount = 0;
+      let savedWrongCount = 0;
 
-    // 채점 결과 계산 및 오답 저장
-    let correctCount = 0;
-    let wrongCount = 0;
-    let unansweredCount = 0;
-    let savedWrongCount = 0;
-    let answeredCount = 0; // 응시한 문제 수 (오답노트 모드용)
-
-    displayQuestions.forEach(q => {
-      const userAnswer = answers[q.id];
-      if (userAnswer === undefined || userAnswer === null) {
-        unansweredCount++;
-      } else {
-        answeredCount++; // 응시한 문제 카운트
-        if (userAnswer === q.answer) {
-          correctCount++;
-          // 오답노트 모드일 때는 정답을 맞춘 문제를 즉시 제거
-          if (isWrongMode) {
-            // 오답노트에 실제로 존재하는지 확인 후 제거
-            const currentWrongAnswers = getWrongAnswers();
-            const existsInWrongAnswers = currentWrongAnswers.some(wa => wa.questionId === q.id);
-            if (existsInWrongAnswers) {
-              removeWrongAnswer(q.id);
-              console.log(`✅ 정답: 문제 ${q.id} (${q.category}) - 오답노트에서 즉시 제거`);
-            } else {
-              console.log(`ℹ️ 정답: 문제 ${q.id} (${q.category}) - 이미 오답노트에 없음`);
-            }
-          } else {
-            // 일반 모드일 때는 correctStreak++, 3회 연속 시 오답노트에서 제거
+      displayQuestions.forEach(q => {
+        const userAnswer = answers[q.id];
+        if (userAnswer === undefined || userAnswer === null) {
+          unansweredCount++;
+        } else {
+          if (userAnswer === q.answer) {
+            correctCount++;
             updateCorrectAnswer(q.id);
             console.log(`✅ 정답: 문제 ${q.id} (${q.category})`);
+          } else {
+            wrongCount++;
+            const wrongAnswer: WrongAnswer = {
+              questionId: q.id,
+              question: q,
+              userAnswer,
+              timestamp: Date.now(),
+              wrongCount: 1,
+              correctStreak: 0,
+            };
+            console.log(`❌ 오답 저장 시도: 문제 ${q.id} (${q.category}) - 사용자 답변: ${userAnswer}, 정답: ${q.answer}`);
+            addWrongAnswer(wrongAnswer);
+            savedWrongCount++;
+            console.log(`✅ 오답 저장 완료: 문제 ${q.id} (${q.category})`);
           }
-        } else {
-          wrongCount++;
-          // 오답 처리: wrongCount++, correctStreak=0
-          // 사용자가 답변을 선택했고, 틀린 경우에만 오답 저장 (채점 기준)
-          const wrongAnswer: WrongAnswer = {
-            questionId: q.id,
-            question: q,
-            userAnswer,
-            timestamp: Date.now(),
-            wrongCount: 1,
-            correctStreak: 0,
-          };
-          console.log(`❌ 오답 저장 시도: 문제 ${q.id} (${q.category}) - 사용자 답변: ${userAnswer}, 정답: ${q.answer}`);
-          addWrongAnswer(wrongAnswer);
-          savedWrongCount++;
-          console.log(`✅ 오답 저장 완료: 문제 ${q.id} (${q.category})`);
         }
-      }
-    });
+      });
 
-    console.log(`📊 채점하기 - 오답 저장 완료: ${savedWrongCount}개 오답 저장됨`);
-    console.log(`📊 채점하기 - 저장된 총 오답 수: ${getWrongAnswers().length}`);
+      console.log(`📊 채점하기 - 오답 저장 완료: ${savedWrongCount}개 오답 저장됨`);
+      console.log(`📊 채점하기 - 저장된 총 오답 수: ${getWrongAnswers().length}`);
 
-    // 오답노트 모드일 때는 응시한 문제만 대상으로 채점
-    let total: number;
-    let score: number;
-    let percentage: number;
-    let encouragement: string = '';
+      const total = displayQuestions.length;
+      const score = Math.round((correctCount / total) * 100);
+      const percentage = ((correctCount / total) * 100);
 
-    if (isWrongMode) {
-      // 오답노트 모드: 응시한 문제만 대상으로 채점
-      total = answeredCount; // 응시한 문제 수
-      if (total === 0) {
-        score = 0;
-        percentage = 0;
-        encouragement = '답변을 선택해주세요! 💪';
-      } else {
-        score = Math.round((correctCount / total) * 100);
-        percentage = ((correctCount / total) * 100);
-        
-        // 격려 메시지 생성
-        if (percentage === 100) {
-          encouragement = '아주 잘하였어요! 완벽합니다! 🎉';
-        } else if (percentage >= 80) {
-          encouragement = '훌륭합니다! 잘하고 있어요! 👍';
-        } else if (percentage >= 60) {
-          encouragement = '좋아요! 계속 노력하세요! 💪';
-        } else {
-          encouragement = '조금 더 노력하면 더 좋아질 거예요! 화이팅! 💪';
-        }
-      }
-    } else {
-      // 일반 모드: 전체 문제 대상으로 채점
-      total = displayQuestions.length;
-      score = Math.round((correctCount / total) * 100);
-      percentage = ((correctCount / total) * 100);
+      // 채점 결과 저장
+      setScoreResult({
+        total,
+        correct: correctCount,
+        wrong: wrongCount,
+        unanswered: unansweredCount,
+        score,
+        percentage: parseFloat(percentage.toFixed(1)),
+      });
+
+      // 모달 표시
+      setShowScoreModal(true);
+      return;
     }
 
-    // 채점 결과 저장
-    setScoreResult({
-      total,
-      correct: correctCount,
-      wrong: wrongCount,
-      unanswered: unansweredCount,
-      score,
-      percentage: parseFloat(percentage.toFixed(1)),
-      encouragement: isWrongMode ? encouragement : undefined,
-      answeredCount: isWrongMode ? answeredCount : undefined,
-    });
+    // 학습 모드: 현재 문제만 간단하게 채점
+    const currentQ = displayQuestions[currentIndex];
+    const userAnswer = answers[currentQ.id];
+    const correctAnswer = currentQ.answer;
 
-    // 모달 표시
-    setShowScoreModal(true);
+    // 세션 저장
+    const currentUserId = getCurrentUser();
+    const session: ExamSession = {
+      questions,
+      answers,
+      learningProgress,
+      startTime,
+      mode: examMode as any,
+      category: undefined,
+      userId: currentUserId || undefined,
+    };
+    saveCurrentExamSession(session);
+
+    // 간단한 alert 메시지
+    if (userAnswer === undefined || userAnswer === null) {
+      alert(`정답은 ${correctAnswer}번입니다.`);
+    } else if (userAnswer === correctAnswer) {
+      alert(`맞았습니다. 정답은 ${correctAnswer}번입니다.`);
+    } else {
+      alert(`틀렸습니다. 정답은 ${correctAnswer}번입니다.`);
+    }
   };
 
   const answeredCount = Object.keys(answers).length;
@@ -1646,6 +1625,29 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
                   </button>
                 )}
 
+                {/* 정답 버튼 */}
+                <button
+                  onClick={() => {
+                    const answer = currentQuestion.answer;
+                    alert(`정답은 ${answer}번입니다.`);
+                  }}
+                  className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
+                >
+                  ✅ 정답 보기
+                </button>
+
+                {/* 학습 도움 자료 버튼 */}
+                {currentQuestion?.helpResourceUrl && (
+                  <button
+                    onClick={() => {
+                      window.open(currentQuestion.helpResourceUrl, '_blank');
+                    }}
+                    className="px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
+                  >
+                    📚 학습도움자료 연결
+                  </button>
+                )}
+
                 <button
                   onClick={handleNext}
                   disabled={currentIndex === displayQuestions.length - 1}
@@ -1669,10 +1671,11 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
                   <div className={isMobile ? 'grid grid-cols-2 gap-2' : 'flex gap-2 flex-wrap'}>
                     {[
                       { value: 1, label: '전혀 모름' },
-                      { value: 2, label: '매우 어려움' },
-                      { value: 3, label: '반복 학습 필요' },
-                      { value: 4, label: '거의 이해' },
-                      { value: 5, label: '완벽 이해' },
+                      { value: 2, label: '어려움' },
+                      { value: 3, label: '매우 어려움' },
+                      { value: 4, label: '반복 학습 필요' },
+                      { value: 5, label: '거의 이해' },
+                      { value: 6, label: '완벽 이해' },
                     ].map(({ value, label }) => {
                       const isSelected = learningProgress[currentQuestion.id] === value;
                       return (

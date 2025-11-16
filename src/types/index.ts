@@ -17,6 +17,7 @@ export interface Question {
   mustExclude?: boolean; // 반드시 불포함 문제 여부 (랜덤 출제 시 항상 제외)
   weight?: number; // 출제 가중치 (1~10, 1이 최고 빈도, 10이 최저 빈도)
   source?: string; // 문제 출처 (교재명, 기출연도 등)
+  helpResourceUrl?: string; // 학습 도움 자료 URL (유튜브 링크 등)
 }
 
 // ========== 회원 (Member) ==========
@@ -44,9 +45,9 @@ export interface WrongAnswer {
 export interface ExamSession {
   questions: Question[]; // 시험 문제 배열
   answers: { [key: number]: number }; // 답안 맵 { 문제ID: 선택한답 }
-  learningProgress?: { [key: number]: number }; // 학습 진도 맵 { 문제ID: 진도값(1-5) }
+  learningProgress?: { [key: number]: number }; // 학습 진도 맵 { 문제ID: 진도값(1-6) }
   startTime: number; // 시험 시작 시간 (timestamp)
-  mode: 'timedRandom' | 'untimedRandom' | 'category' | 'wrong'; // 시험 모드
+  mode: 'timedRandom' | 'untimedRandom' | 'category' | 'wrong' | 'review'; // 시험 모드
   category?: string; // 카테고리 (category 모드 시)
   userId?: number; // 세션 소유자 ID (사용자별 세션 구분용)
 }
@@ -58,7 +59,7 @@ export interface ExamResult {
   wrongQuestions: Question[]; // 틀린 문제 목록
   allQuestions?: Question[]; // 전체 문제 목록 (통계 계산용)
   timestamp: number; // 시험 완료 시간
-  mode: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong'; // 시험 모드 (random은 이전 버전 호환용)
+  mode: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review'; // 시험 모드 (random은 이전 버전 호환용)
   category?: string; // 카테고리
 }
 

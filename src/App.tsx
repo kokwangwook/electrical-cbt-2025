@@ -102,7 +102,7 @@ function App() {
     setState('exam');
   };
 
-  const handleCompleteExam = (examAnswers: (number | null)[], mode?: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong') => {
+  const handleCompleteExam = (examAnswers: (number | null)[], mode?: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review') => {
     setAnswers(examAnswers);
     if (mode && mode !== 'random') {
       setExamMode(mode);
@@ -119,11 +119,30 @@ function App() {
       // 새 창 닫기
       window.close();
     } else {
-      // 현재 창에서 홈으로
-      setQuestions([]);
-      setAnswers([]);
-      setStartTime(0);
-      setState('home');
+      // 다시 시작: 기존에 푼 문제를 재로드 (세션 복원)
+      const session = getCurrentExamSession();
+      if (session && session.questions && session.questions.length > 0) {
+        // 세션의 문제에 이미지 복원
+        const allQuestions = getQuestions();
+        const questionsWithImages = session.questions.map(sessionQ => {
+          const originalQ = allQuestions.find(q => q.id === sessionQ.id);
+          if (originalQ && originalQ.imageUrl) {
+            return { ...sessionQ, imageUrl: originalQ.imageUrl };
+          }
+          return sessionQ;
+        });
+        
+        setQuestions(questionsWithImages);
+        setExamMode(session.mode || 'untimedRandom');
+        setStartTime(session.startTime || Date.now());
+        setState('exam');
+      } else {
+        // 세션이 없으면 홈으로
+        setQuestions([]);
+        setAnswers([]);
+        setStartTime(0);
+        setState('home');
+      }
     }
   };
 
@@ -197,6 +216,7 @@ function App() {
           timeSpent={timeSpent}
           mode={examMode}
           onRestart={handleRestart}
+          onGoHome={handleExit}
         />
       )}
       {state === 'wrongAnswers' && (

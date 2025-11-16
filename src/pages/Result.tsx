@@ -8,11 +8,12 @@ interface ResultProps {
   questions: Question[];
   answers: (number | null)[];
   timeSpent: number;
-  mode?: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong';
+  mode?: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review';
   onRestart: () => void;
+  onGoHome?: () => void; // 나가기 버튼용
 }
 
-export default function Result({ questions, answers, timeSpent, mode = 'timedRandom', onRestart }: ResultProps) {
+export default function Result({ questions, answers, timeSpent, mode = 'timedRandom', onRestart, onGoHome }: ResultProps) {
   const [showReview, setShowReview] = useState(false);
   const [reviewIndex, setReviewIndex] = useState(0);
 
@@ -178,7 +179,7 @@ export default function Result({ questions, answers, timeSpent, mode = 'timedRan
             📝 해설 보기
           </button>
           <button
-            onClick={onRestart}
+            onClick={onGoHome || onRestart}
             className="px-6 py-4 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-semibold transition-colors text-lg"
           >
             ← 나가기

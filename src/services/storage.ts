@@ -917,6 +917,43 @@ export function updateGlobalLearningProgress(questionId: number, progress: numbe
   saveGlobalLearningProgress(currentProgress);
 }
 
+/**
+ * 복습 모드 문제 가져오기
+ * 학습 진도 1-5만 포함 (완벽 이해 6 제외)
+ * 각 영역별 20문제씩 총 60문제 랜덤 출제
+ */
+export function getReviewQuestions(): Question[] {
+  const allQuestions = getQuestions();
+  const globalProgress = getGlobalLearningProgress();
+  
+  // 학습 진도 1-5만 필터링 (6 제외)
+  const eligibleQuestions = allQuestions.filter(q => {
+    const progress = globalProgress[q.id];
+    // 학습 진도가 있고, 완벽 이해(6)가 아닌 문제만 포함
+    return progress !== undefined && progress !== 6;
+  });
+  
+  // 카테고리별로 20문제씩 선택
+  const categories = ['전기이론', '전기기기', '전기설비'];
+  const selectedQuestions: Question[] = [];
+  
+  categories.forEach(category => {
+    const categoryQuestions = eligibleQuestions
+      .filter(q => q.category === category)
+      .sort(() => Math.random() - 0.5) // 랜덤 섞기
+      .slice(0, 20); // 각 카테고리에서 최대 20문제
+    
+    selectedQuestions.push(...categoryQuestions);
+  });
+  
+  console.log(`📚 복습 모드: 학습 진도 1-5 문제 중 ${selectedQuestions.length}문제 선택`);
+  console.log(`   - 전기이론: ${selectedQuestions.filter(q => q.category === '전기이론').length}문제`);
+  console.log(`   - 전기기기: ${selectedQuestions.filter(q => q.category === '전기기기').length}문제`);
+  console.log(`   - 전기설비: ${selectedQuestions.filter(q => q.category === '전기설비').length}문제`);
+  
+  return selectedQuestions;
+}
+
 // ========== 시험 결과 (ExamResult) 관리 ==========
 
 export function getExamResults(): ExamResult[] {

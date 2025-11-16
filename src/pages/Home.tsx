@@ -12,6 +12,7 @@ import {
   initializeData,
   clearWrongAnswers,
   clearStatistics,
+  getReviewQuestions,
 } from '../services/storage';
 import type { ExamSession } from '../types';
 import {
@@ -21,13 +22,13 @@ import {
 } from '../services/supabaseService';
 
 interface HomeProps {
-  onStartExam: (questions: Question[], mode: 'timedRandom' | 'untimedRandom' | 'category' | 'wrong') => void;
+  onStartExam: (questions: Question[], mode: 'timedRandom' | 'untimedRandom' | 'category' | 'wrong' | 'review') => void;
   onGoToWrongAnswers: () => void;
   onGoToStatistics: () => void;
 }
 
 export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics }: HomeProps) {
-  const [mode, setMode] = useState<'timedRandom' | 'untimedRandom' | 'category' | 'wrong'>('untimedRandom');
+  const [mode, setMode] = useState<'timedRandom' | 'untimedRandom' | 'category' | 'wrong' | 'review'>('untimedRandom');
   const [selectedCategory, setSelectedCategory] = useState<string>('전기이론');
   const [loading, setLoading] = useState<boolean>(false);
   const [hasPreviousSession, setHasPreviousSession] = useState<boolean>(false);
@@ -218,6 +219,25 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
         }
 
         examQuestions = wrongQuestions;
+      } else if (mode === 'review') {
+        // 복습 모드: 학습 진도 1-5만 포함 (완벽 이해 6 제외)
+        console.log('📚 복습 모드: 학습 진도 기반 문제 선택');
+        
+        setLoadingProgress('학습 진도 기반 문제를 선택하는 중...');
+        examQuestions = getReviewQuestions();
+        
+        if (examQuestions.length === 0) {
+          alert('복습할 문제가 없습니다.\n\n학습 진도를 체크한 문제가 없거나, 모든 문제가 완벽 이해 상태입니다.');
+          setLoading(false);
+          setLoadingProgress('');
+          return;
+        }
+        
+        if (examQuestions.length < 60) {
+          alert(
+            `학습 진도가 있는 문제가 ${examQuestions.length}개뿐입니다.\n${examQuestions.length}문제로 시작합니다.`
+          );
+        }
       }
 
       setLoadingProgress('');
@@ -490,6 +510,31 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
                     <div className="font-semibold text-gray-800">📝 스마트 오답노트 복습</div>
                     <div className="text-sm text-gray-600">
                       틀렸던 문제만 재출제 (최대 20문제)
+                    </div>
+                  </div>
+                </label>
+
+                {/* C-3: 학습 진도 기반 복습 */}
+                <label className={`flex items-center p-3 border-2 rounded-lg cursor-pointer transition-colors ${
+                  mode === 'review'
+                    ? 'border-indigo-500 bg-indigo-50'
+                    : 'border-gray-200 hover:bg-gray-50'
+                }`}>
+                  <input
+                    type="radio"
+                    name="mode"
+                    value="review"
+                    checked={mode === 'review'}
+                    onChange={() => setMode('review')}
+                    className="mr-3 w-4 h-4"
+                  />
+                  <div className="flex-1">
+                    <div className="font-semibold text-gray-800">📚 학습 진도 기반 복습</div>
+                    <div className="text-sm text-gray-600">
+                      학습 진도 1-5 문제만 복습 (완벽 이해 제외)
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      전기이론 20 + 전기기기 20 + 전기설비 20 = 총 60문제
                     </div>
                   </div>
                 </label>

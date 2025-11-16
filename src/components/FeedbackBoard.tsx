@@ -12,7 +12,10 @@ interface FeedbackBoardProps {
 export default function FeedbackBoard({ onClose, currentQuestion, currentQuestionIndex }: FeedbackBoardProps) {
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [newFeedback, setNewFeedback] = useState('');
-  const [feedbackType, setFeedbackType] = useState<'suggestion' | 'bug' | 'question' | 'myFeedbacks'>('bug'); // 기본값을 오류 제보로 변경
+  // 문제가 있으면 기본값을 'bug'로, 없으면 'suggestion'으로 설정
+  const [feedbackType, setFeedbackType] = useState<'suggestion' | 'bug' | 'question' | 'myFeedbacks'>(
+    currentQuestion ? 'bug' : 'suggestion'
+  );
   const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState<'all' | 'myFeedbacks'>('all'); // 전체 보기 / 나의 제보 내역
 
@@ -292,10 +295,10 @@ export default function FeedbackBoard({ onClose, currentQuestion, currentQuestio
                     <button
                       onClick={() => {
                         setViewMode('myFeedbacks');
-                        setFeedbackType('myFeedbacks');
+                        setFeedbackType('myFeedbacks' as any);
                       }}
                       className={`px-3 py-1 rounded text-sm ${
-                        viewMode === 'myFeedbacks'
+                        (viewMode as string) === 'myFeedbacks'
                           ? 'bg-purple-600 text-white'
                           : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                       }`}
