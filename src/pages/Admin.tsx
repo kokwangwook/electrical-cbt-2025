@@ -49,6 +49,8 @@ import {
   updateQuestionInSupabase,
   deleteQuestionFromSupabase,
   saveMemberToSupabase,
+  getLoginHistory as getLoginHistoryFromSupabase,
+  fetchAllUserDataFromSupabase,
 } from '../services/supabaseService';
 import { useFeedbacks } from '../hooks/useFeedbacks';
 
@@ -59,7 +61,7 @@ export default function Admin() {
   const ADMIN_PASSWORD = 'admin2024';
 
   // 탭
-  const [activeTab, setActiveTab] = useState<'questions' | 'members' | 'sync' | 'statistics' | 'config' | 'login-history' | 'feedbacks' | 'upload'>('questions');
+  const [activeTab, setActiveTab] = useState<'questions' | 'members' | 'sync' | 'statistics' | 'config' | 'login-history' | 'feedbacks' | 'upload' | 'student-records'>('questions');
   const [feedbackSubTab, setFeedbackSubTab] = useState<'bug' | 'suggestion' | 'question'>('bug'); // 제보 게시판 하위 탭
 
   // 문제 업로드
@@ -101,6 +103,19 @@ export default function Admin() {
 
   // 로그인 기록
   const [loginHistory, setLoginHistory] = useState<LoginHistory[]>([]);
+  const [isLoadingLoginHistory, setIsLoadingLoginHistory] = useState(false);
+
+  // 학생 학습 기록
+  const [studentRecords, setStudentRecords] = useState<Array<{
+    userId: number;
+    userName: string;
+    wrongAnswers: unknown[];
+    examResults: unknown[];
+    statistics: unknown;
+    updatedAt: string;
+  }>>([]);
+  const [isLoadingStudentRecords, setIsLoadingStudentRecords] = useState(false);
+  const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
 
   // 제보 게시판 - 커스텀 훅 사용
   const {
@@ -245,9 +260,49 @@ export default function Admin() {
     setMembers(allMembers);
   };
 
-  const loadLoginHistory = () => {
-    const history = getLoginHistory();
-    setLoginHistory(history);
+  const loadLoginHistory = async () => {
+    setIsLoadingLoginHistory(true);
+    try {
+      // Supabase에서 로그인 기록 불러오기 (모바일/태블릿 포함)
+      const supabaseHistory = await getLoginHistoryFromSupabase();
+      if (supabaseHistory.length > 0) {
+        setLoginHistory(supabaseHistory);
+        console.log('✅ Supabase 로그인 기록 로드:', supabaseHistory.length, '개');
+      } else {
+        // Supabase에 데이터가 없으면 localStorage 폴백
+        const localHistory = getLoginHistory();
+        setLoginHistory(localHistory);
+        console.log('ℹ️ localStorage 로그인 기록 사용:', localHistory.length, '개');
+      }
+    } catch (err) {
+      console.error('로그인 기록 로드 실패:', err);
+      // 에러 시 localStorage 폴백
+      const localHistory = getLoginHistory();
+      setLoginHistory(localHistory);
+    } finally {
+      setIsLoadingLoginHistory(false);
+    }
+  };
+
+  const loadStudentRecords = async () => {
+    setIsLoadingStudentRecords(true);
+    try {
+      const allUserData = await fetchAllUserDataFromSupabase();
+      // 회원 정보와 매칭
+      const recordsWithNames = allUserData.map(userData => {
+        const member = members.find(m => m.id === userData.userId);
+        return {
+          ...userData,
+          userName: member?.name || `회원 #${userData.userId}`
+        };
+      });
+      setStudentRecords(recordsWithNames);
+      console.log('✅ 학생 학습 기록 로드:', recordsWithNames.length, '명');
+    } catch (err) {
+      console.error('학생 학습 기록 로드 실패:', err);
+    } finally {
+      setIsLoadingStudentRecords(false);
+    }
   };
 
   // loadFeedbacks는 useFeedbacks 훅에서 제공됨
@@ -1419,6 +1474,21 @@ export default function Admin() {
               }`}
             >
               📤 문제 업로드
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('student-records');
+                if (studentRecords.length === 0) {
+                  loadStudentRecords();
+                }
+              }}
+              className={`flex-1 py-4 px-6 font-semibold transition-colors ${
+                activeTab === 'student-records'
+                  ? 'border-b-2 border-blue-500 text-blue-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              📊 학생 학습 기록 ({studentRecords.length})
             </button>
           </div>
         </div>
@@ -2763,9 +2833,10 @@ export default function Admin() {
                 <div className="flex gap-2">
                   <button
                     onClick={loadLoginHistory}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                    disabled={isLoadingLoginHistory}
+                    className={`px-4 py-2 ${isLoadingLoginHistory ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'} text-white rounded-lg transition-colors`}
                   >
-                    🔄 새로고침
+                    {isLoadingLoginHistory ? '로딩 중...' : '🔄 새로고침'}
                   </button>
                   <button
                     onClick={handleClearLoginHistory}
@@ -2776,7 +2847,11 @@ export default function Admin() {
                 </div>
               </div>
 
-              {loginHistory.length === 0 ? (
+              {isLoadingLoginHistory ? (
+                <div className="text-center py-12 text-gray-500">
+                  <p className="text-lg">로그인 기록을 불러오는 중...</p>
+                </div>
+              ) : loginHistory.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
                   <p className="text-lg">로그인 기록이 없습니다.</p>
                 </div>
@@ -3191,6 +3266,170 @@ export default function Admin() {
                       {isUploading ? '저장 중...' : `📥 ${uploadPreview.length}개 문제를 DB에 저장`}
                     </button>
                   </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 학생 학습 기록 탭 */}
+        {activeTab === 'student-records' && (
+          <div>
+            <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-gray-800">📊 학생 학습 기록</h2>
+                <button
+                  onClick={loadStudentRecords}
+                  disabled={isLoadingStudentRecords}
+                  className={`px-4 py-2 ${isLoadingStudentRecords ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'} text-white rounded-lg transition-colors`}
+                >
+                  {isLoadingStudentRecords ? '로딩 중...' : '🔄 새로고침'}
+                </button>
+              </div>
+
+              {isLoadingStudentRecords ? (
+                <div className="text-center py-12 text-gray-500">
+                  <p className="text-lg">학생 학습 기록을 불러오는 중...</p>
+                </div>
+              ) : studentRecords.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  <p className="text-lg">학습 기록이 없습니다.</p>
+                  <p className="text-sm mt-2">학생들이 시험을 보면 여기에 기록이 표시됩니다.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* 학생 목록 */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {studentRecords.map(record => (
+                      <div
+                        key={record.userId}
+                        onClick={() => setSelectedStudentId(selectedStudentId === record.userId ? null : record.userId)}
+                        className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                          selectedStudentId === record.userId
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200 hover:border-blue-300'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <h3 className="font-bold text-lg text-gray-800">{record.userName}</h3>
+                          <span className="text-xs text-gray-500">ID: {record.userId}</span>
+                        </div>
+                        <div className="space-y-1 text-sm">
+                          <p className="text-gray-600">
+                            📝 시험 횟수: <span className="font-semibold">{(record.examResults as unknown[]).length}회</span>
+                          </p>
+                          <p className="text-gray-600">
+                            ❌ 오답 문제: <span className="font-semibold">{(record.wrongAnswers as unknown[]).length}개</span>
+                          </p>
+                          {(() => {
+                            const stats = record.statistics as { averageScore?: number } | null;
+                            if (stats && typeof stats === 'object' && stats.averageScore !== undefined) {
+                              return (
+                                <p className="text-gray-600">
+                                  📊 평균 점수: <span className="font-semibold">{Number(stats.averageScore).toFixed(1)}점</span>
+                                </p>
+                              );
+                            }
+                            return null;
+                          })()}
+                          <p className="text-xs text-gray-400 mt-2">
+                            마지막 업데이트: {new Date(record.updatedAt).toLocaleString('ko-KR')}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* 선택된 학생의 상세 정보 */}
+                  {selectedStudentId && (() => {
+                    const selectedRecord = studentRecords.find(r => r.userId === selectedStudentId);
+                    if (!selectedRecord) return null;
+
+                    const examResults = selectedRecord.examResults as Array<{
+                      timestamp: number;
+                      totalQuestions: number;
+                      correctAnswers: number;
+                      mode?: string;
+                    }>;
+
+                    const wrongAnswers = selectedRecord.wrongAnswers as Array<{
+                      questionId: number;
+                      wrongCount: number;
+                      timestamp: number;
+                    }>;
+
+                    return (
+                      <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                        <h3 className="text-lg font-bold text-gray-800 mb-4">
+                          📋 {selectedRecord.userName}님의 상세 기록
+                        </h3>
+
+                        {/* 최근 시험 결과 */}
+                        <div className="mb-4">
+                          <h4 className="font-semibold text-gray-700 mb-2">최근 시험 결과 (최근 10개)</h4>
+                          {examResults.length === 0 ? (
+                            <p className="text-gray-500 text-sm">시험 기록이 없습니다.</p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="bg-gray-200">
+                                    <th className="px-3 py-2 text-left">날짜</th>
+                                    <th className="px-3 py-2 text-left">모드</th>
+                                    <th className="px-3 py-2 text-center">문제 수</th>
+                                    <th className="px-3 py-2 text-center">정답</th>
+                                    <th className="px-3 py-2 text-center">점수</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {examResults.slice(0, 10).map((result, idx) => (
+                                    <tr key={idx} className="border-b">
+                                      <td className="px-3 py-2">
+                                        {new Date(result.timestamp).toLocaleString('ko-KR', {
+                                          month: '2-digit',
+                                          day: '2-digit',
+                                          hour: '2-digit',
+                                          minute: '2-digit'
+                                        })}
+                                      </td>
+                                      <td className="px-3 py-2">{result.mode || '일반'}</td>
+                                      <td className="px-3 py-2 text-center">{result.totalQuestions}</td>
+                                      <td className="px-3 py-2 text-center">{result.correctAnswers}</td>
+                                      <td className="px-3 py-2 text-center font-semibold">
+                                        {result.totalQuestions > 0
+                                          ? ((result.correctAnswers / result.totalQuestions) * 100).toFixed(1)
+                                          : 0}%
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 자주 틀리는 문제 */}
+                        <div>
+                          <h4 className="font-semibold text-gray-700 mb-2">자주 틀리는 문제 (상위 10개)</h4>
+                          {wrongAnswers.length === 0 ? (
+                            <p className="text-gray-500 text-sm">오답 기록이 없습니다.</p>
+                          ) : (
+                            <div className="space-y-2">
+                              {wrongAnswers
+                                .sort((a, b) => b.wrongCount - a.wrongCount)
+                                .slice(0, 10)
+                                .map((wa, idx) => (
+                                  <div key={idx} className="flex justify-between items-center p-2 bg-white rounded border">
+                                    <span className="text-gray-700">문제 #{wa.questionId}</span>
+                                    <span className="text-red-600 font-semibold">{wa.wrongCount}회 오답</span>
+                                  </div>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
