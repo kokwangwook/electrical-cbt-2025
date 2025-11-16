@@ -557,14 +557,43 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
 
       // 실전 모의고사 모드는 세션 저장하지 않음 (한번 끝나면 다시 계속할 수 없음)
       if (examMode === 'timedRandom') {
-        // 실전 모의고사 모드는 나가면 채점으로 이동
-        if (window.confirm('⚠️ 실전 모의고사를 종료하시겠습니까?\n\n확인을 누르면 현재까지의 답변으로 채점됩니다.')) {
+        // 실전 모의고사 모드: 1문제라도 풀었으면 자동 채점, 아니면 그냥 나가기
+        if (answeredCount > 0) {
+          // 1문제라도 풀었으면 자동 채점
+          console.log('📊 실전 모의고사 나가기 - 자동 채점 (답변 있음)');
           handleSubmit(false);
+        } else {
+          // 한 문제도 안 풀었으면 그냥 나가기
+          console.log('🚪 실전 모의고사 나가기 - 답변 없음, 그냥 나가기');
+          clearCurrentExamSession();
+          onExit();
         }
         return;
       }
 
-      // 저장하고 나가기 vs 채점하고 나가기 선택
+      // 랜덤 60문제 모드 (untimedRandom): 팝업 없이 자동 저장하고 나가기
+      if (examMode === 'untimedRandom') {
+        // 저장하고 나가기 (세션 유지) - 팝업 없이
+        const currentUserId = getCurrentUser();
+        const session: ExamSession = {
+          questions: displayQuestions,
+          answers,
+          learningProgress,
+          startTime,
+          mode: examMode as any,
+          category: undefined,
+          userId: currentUserId || undefined,
+        };
+
+        saveCurrentExamSession(session);
+        console.log(`💾 시험 현황 자동 저장 완료: ${answeredCount}/${totalCount} 문제 풀이 완료`);
+
+        // 팝업 없이 바로 홈으로 돌아가기 (세션은 유지)
+        onExit();
+        return;
+      }
+
+      // 기타 모드 (category, wrong, review): 저장하고 나가기 vs 채점하고 나가기 선택
       const choice = window.confirm(
         `💾 현재 진행 상황\n\n` +
         `답변한 문제: ${answeredCount}/${totalCount}개\n` +

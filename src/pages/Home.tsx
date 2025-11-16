@@ -461,12 +461,12 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
                     <div className="mt-2 ml-7">
                       <button
                         onClick={handleResumePreviousExam}
-                        className="px-3 py-1.5 bg-purple-500 hover:bg-purple-600 text-white text-xs rounded transition-colors duration-200 flex items-center gap-1"
+                        className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-semibold rounded-lg transition-colors duration-200 flex items-center gap-2 shadow-md"
                       >
                         <span>📖 이전 시험 계속하기</span>
                       </button>
-                      <div className="mt-1 text-xs text-gray-500">
-                        진행: {Object.keys(previousSession.answers || {}).length} / {previousSession.questions.length} 문제
+                      <div className="mt-1 text-xs text-green-600 font-medium">
+                        진행: {Object.keys(previousSession.answers || {}).length}/{previousSession.questions.length}
                       </div>
                     </div>
                   )}
