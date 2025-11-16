@@ -165,16 +165,17 @@ export default function Login({ onLoginSuccess, onResumeExam, onGoToRegister }: 
       console.warn('⚠️ 로컬 로그인 기록 저장 실패');
     }
 
-    // Supabase에 로그인 기록 저장 (비동기, 실패해도 무시)
-    saveLoginHistory(member.id, member.name).then(success => {
-      if (success) {
+    // Supabase에 로그인 기록 저장 (완료 대기, 실패해도 로그인은 진행)
+    try {
+      const supabaseSuccess = await saveLoginHistory(member.id, member.name);
+      if (supabaseSuccess) {
         console.log('✅ Supabase 로그인 기록 저장 성공');
       } else {
         console.warn('⚠️ Supabase 로그인 기록 저장 실패');
       }
-    }).catch(err => {
+    } catch (err) {
       console.warn('⚠️ Supabase 로그인 기록 저장 오류:', err);
-    });
+    }
 
     // 이전 시험 기록이 있는지 확인 (현재 사용자의 세션만 확인)
     const currentSession = getCurrentExamSession();
