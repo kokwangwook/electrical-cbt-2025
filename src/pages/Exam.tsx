@@ -1137,7 +1137,8 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
                       }
                     })()}
 
-                    {/* 문제 이해도 체크 (PC 모드) */}
+                    {/* 문제 이해도 체크 (PC 모드) - 모의시험 모드에서는 숨김 */}
+                    {examMode !== 'timedRandom' && (
                     <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="text-yellow-500 text-sm">⭐</span>
@@ -1182,6 +1183,7 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
                         </div>
                       )}
                     </div>
+                    )}
                   </div>
                 );
               })}
@@ -1752,8 +1754,8 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
                 </button>
               </div>
 
-              {/* 학습 진도 체크 */}
-              {currentQuestion && (
+              {/* 학습 진도 체크 - 모의시험 모드에서는 숨김 */}
+              {currentQuestion && examMode !== 'timedRandom' && (
                 <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-yellow-500">⭐</span>
