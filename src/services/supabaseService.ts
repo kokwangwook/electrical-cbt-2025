@@ -83,10 +83,12 @@ export const fetchRandom60Questions = async (): Promise<Question[]> => {
  */
 export const fetchAllQuestions = async (): Promise<Question[]> => {
   try {
+    // Supabase 기본 제한이 1000개이므로 10000개로 늘림
     const { data, error } = await supabase
       .from('questions')
       .select('*')
-      .order('id');
+      .order('id')
+      .limit(10000);
 
     if (error) {
       console.error('모든 문제 조회 실패:', error);
