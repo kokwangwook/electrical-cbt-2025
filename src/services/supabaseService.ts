@@ -345,6 +345,68 @@ export const deleteMemberFromSupabase = async (id: number): Promise<boolean> => 
 };
 
 /**
+ * 문제 수정 (Supabase)
+ */
+export const updateQuestionInSupabase = async (question: Question): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('questions')
+      .update({
+        category: question.category,
+        standard: question.standard,
+        detailItem: question.detailItem,
+        question: question.question,
+        option1: question.option1,
+        option2: question.option2,
+        option3: question.option3,
+        option4: question.option4,
+        answer: question.answer,
+        explanation: question.explanation,
+        imageUrl: question.imageUrl,
+        hasImage: question.hasImage,
+        mustInclude: question.mustInclude,
+        mustExclude: question.mustExclude,
+        weight: question.weight
+      })
+      .eq('id', question.id);
+
+    if (error) {
+      console.error('문제 수정 실패:', error);
+      return false;
+    }
+
+    console.log('✅ 문제 수정 완료:', question.id);
+    return true;
+  } catch (err) {
+    console.error('문제 수정 오류:', err);
+    return false;
+  }
+};
+
+/**
+ * 문제 삭제 (Supabase)
+ */
+export const deleteQuestionFromSupabase = async (id: number): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('questions')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('문제 삭제 실패:', error);
+      return false;
+    }
+
+    console.log('✅ 문제 삭제 완료:', id);
+    return true;
+  } catch (err) {
+    console.error('문제 삭제 오류:', err);
+    return false;
+  }
+};
+
+/**
  * 문제 일괄 삽입 (Supabase) - 핵심 필드만
  */
 export const insertQuestions = async (

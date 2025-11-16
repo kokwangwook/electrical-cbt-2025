@@ -46,6 +46,9 @@ import {
   getCategoryCounts,
   updateMemberInSupabase,
   deleteMemberFromSupabase,
+  updateQuestionInSupabase,
+  deleteQuestionFromSupabase,
+  saveMemberToSupabase,
 } from '../services/supabaseService';
 import { useFeedbacks } from '../hooks/useFeedbacks';
 
@@ -354,19 +357,19 @@ export default function Admin() {
   };
 
   // 문제 수정
-  const handleUpdateQuestion = () => {
+  const handleUpdateQuestion = async () => {
     if (!editingQuestion) return;
-    
+
     // 출제기준이 없고 자동 적용이 체크되어 있으면 자동으로 적용
     let questionToUpdate = { ...editingQuestion };
     // 임시 미리보기 데이터 제거
     delete (questionToUpdate as any)._imagePreview;
     delete (questionToUpdate as any)._imageExtension;
-    
+
     if (!questionToUpdate.standard && autoApplyStandard) {
       // 키워드 기반 자동 매칭 시도
       let matchedStandard = matchStandardByKeywords(questionToUpdate);
-      
+
       // 키워드 매칭이 실패하면 랜덤하게 적용
       if (!matchedStandard) {
         const standards = getStandardsByCategory(questionToUpdate.category);
@@ -374,10 +377,10 @@ export default function Admin() {
           matchedStandard = standards[Math.floor(Math.random() * standards.length)];
         }
       }
-      
+
       if (matchedStandard) {
         questionToUpdate.standard = matchedStandard;
-        
+
         // 출제기준이 할당된 후 세부항목 자동 할당
         if (autoApplyStandard && !questionToUpdate.detailItem) {
           const matchedDetailItem = matchDetailItemByKeywords(questionToUpdate);
@@ -393,30 +396,55 @@ export default function Admin() {
         questionToUpdate.detailItem = matchedDetailItem;
       }
     }
-    
+
+    // 로컬 스토리지 업데이트
     updateQuestion(questionToUpdate);
+
+    // Supabase 동기화 (비동기)
+    const supabaseSuccess = await updateQuestionInSupabase(questionToUpdate);
+
     loadQuestions();
     setShowEditModal(false);
     setEditingQuestion(null);
-    alert('문제가 수정되었습니다.');
+
+    if (supabaseSuccess) {
+      alert('문제가 수정되었습니다. (서버 동기화 완료)');
+    } else {
+      alert('문제가 로컬에 수정되었습니다. (서버 동기화 실패)');
+    }
   };
 
   // 문제 삭제
-  const handleDeleteQuestion = (id: number) => {
+  const handleDeleteQuestion = async (id: number) => {
     if (window.confirm('이 문제를 삭제하시겠습니까?')) {
+      // 로컬 스토리지에서 삭제
       deleteQuestion(id);
+
+      // Supabase에서도 삭제 (비동기)
+      const supabaseSuccess = await deleteQuestionFromSupabase(id);
+
       loadQuestions();
+
+      if (!supabaseSuccess) {
+        console.warn('⚠️ Supabase에서 문제 삭제 실패');
+      }
     }
   };
 
   // 선택 문제 일괄 삭제
-  const handleDeleteSelected = () => {
+  const handleDeleteSelected = async () => {
     if (selectedQuestions.size === 0) {
       alert('삭제할 문제를 선택해주세요.');
       return;
     }
     if (window.confirm(`선택한 ${selectedQuestions.size}개의 문제를 삭제하시겠습니까?`)) {
+      // 로컬 삭제
       selectedQuestions.forEach(id => deleteQuestion(id));
+
+      // Supabase 삭제 (비동기)
+      const deletePromises = Array.from(selectedQuestions).map(id => deleteQuestionFromSupabase(id));
+      await Promise.all(deletePromises);
+
       setSelectedQuestions(new Set());
       loadQuestions();
       alert('선택한 문제가 삭제되었습니다.');
@@ -575,17 +603,34 @@ export default function Admin() {
   };
 
   // 회원 추가
-  const handleAddMember = () => {
+  const handleAddMember = async () => {
     if (!newMember.name || !newMember.name.trim()) {
       alert('이름을 입력해주세요.');
       return;
     }
     try {
-      addMember(newMember);
+      // 로컬 스토리지에 추가
+      const addedMember = addMember(newMember);
+
+      // Supabase에도 동기화
+      const supabaseSuccess = await saveMemberToSupabase({
+        id: addedMember.id,
+        name: addedMember.name,
+        phone: addedMember.phone,
+        email: addedMember.email,
+        address: addedMember.address,
+        registeredAt: addedMember.registeredAt
+      });
+
       loadMembers();
       setShowAddMemberModal(false);
       resetNewMember();
-      alert('회원이 추가되었습니다.');
+
+      if (supabaseSuccess) {
+        alert('회원이 추가되었습니다. (서버 동기화 완료)');
+      } else {
+        alert('회원이 로컬에 추가되었습니다. (서버 동기화 실패)');
+      }
     } catch (error) {
       console.error('회원 추가 실패:', error);
       alert(error instanceof Error ? error.message : '회원 추가에 실패했습니다.');
