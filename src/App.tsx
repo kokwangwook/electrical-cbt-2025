@@ -174,10 +174,6 @@ function App() {
     setState('home');
   };
 
-  const handleGoToWrongAnswers = () => {
-    setState('wrongAnswers');
-  };
-
   const handleGoToStatistics = () => {
     setState('statistics');
   };
@@ -227,7 +223,6 @@ function App() {
       {state === 'home' && (
         <Home
           onStartExam={handleStartExam}
-          onGoToWrongAnswers={handleGoToWrongAnswers}
           onGoToStatistics={handleGoToStatistics}
         />
       )}
