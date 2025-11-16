@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { getMemberByAnyCredential, setCurrentUser, getCurrentExamSession, clearCurrentExamSession, saveCurrentExamSession, getMembers, initializeData, addLoginHistory } from '../services/storage';
-import { saveLoginHistory } from '../services/supabaseService';
+import { getMemberByAnyCredential, setCurrentUser, getCurrentExamSession, clearCurrentExamSession, saveCurrentExamSession, getMembers, initializeData, addLoginHistory, saveMembers } from '../services/storage';
+import { saveLoginHistory, fetchAllMembersFromSupabase } from '../services/supabaseService';
 
 interface LoginProps {
   onLoginSuccess: () => void;
@@ -16,7 +16,54 @@ export default function Login({ onLoginSuccess, onResumeExam, onGoToRegister }: 
   // 페이지 로드 시 초기화 (누락된 회원 자동 추가)
   useEffect(() => {
     initializeData();
+    // Supabase에서 회원 목록 동기화
+    syncMembersFromSupabase();
   }, []);
+
+  // Supabase에서 회원 목록 동기화
+  const syncMembersFromSupabase = async () => {
+    try {
+      console.log('🔄 Supabase에서 회원 목록 동기화 중...');
+      const supabaseMembers = await fetchAllMembersFromSupabase();
+
+      if (supabaseMembers.length > 0) {
+        // Supabase 회원을 로컬 스토리지에 병합
+        const localMembers = getMembers();
+        const mergedMembers = [...localMembers];
+
+        for (const sMember of supabaseMembers) {
+          const existingIndex = mergedMembers.findIndex(m => m.id === sMember.id);
+          if (existingIndex !== -1) {
+            // 기존 회원 업데이트 (Supabase 데이터 우선)
+            mergedMembers[existingIndex] = {
+              ...mergedMembers[existingIndex],
+              name: sMember.name,
+              phone: sMember.phone,
+              email: sMember.email,
+              address: sMember.address,
+              memo: sMember.memo || mergedMembers[existingIndex].memo
+            };
+          } else {
+            // 새 회원 추가
+            mergedMembers.push({
+              id: sMember.id,
+              name: sMember.name,
+              phone: sMember.phone,
+              email: sMember.email,
+              address: sMember.address,
+              registeredAt: sMember.registeredAt,
+              memo: sMember.memo || ''
+            });
+          }
+        }
+
+        saveMembers(mergedMembers);
+        console.log(`✅ 회원 목록 동기화 완료: ${supabaseMembers.length}명`);
+      }
+    } catch (err) {
+      console.warn('⚠️ Supabase 회원 동기화 실패:', err);
+    }
+  };
 
   const handleLogin = async () => {
     setError(null);
@@ -29,11 +76,14 @@ export default function Login({ onLoginSuccess, onResumeExam, onGoToRegister }: 
       return;
     }
 
+    // Supabase에서 최신 회원 정보 동기화 (로그인 시도 전)
+    await syncMembersFromSupabase();
+
     // 사용자 찾기 (이름, 전화번호, 이메일 중 하나라도 일치하면 됨)
     const trimmedInput = input.trim();
-    
+
     console.log('🔍 로그인 시도:', { input: trimmedInput });
-    
+
     const member = getMemberByAnyCredential(trimmedInput);
     
     if (!member) {
