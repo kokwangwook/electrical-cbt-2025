@@ -1,6 +1,6 @@
 // Supabase Service - 서버에서 직접 문제 가져오기
 import { supabase } from './supabaseClient';
-import type { Question, LoginHistory } from '../types';
+import type { Question, LoginHistory, Feedback } from '../types';
 
 /**
  * 카테고리별 랜덤 문제 가져오기 (서버에서 직접 선택)
@@ -108,6 +108,19 @@ export const getCategoryCounts = async (): Promise<{
 };
 
 /**
+ * IP 주소 가져오기 (외부 API 사용)
+ */
+const getClientIP = async (): Promise<string> => {
+  try {
+    const response = await fetch('https://api.ipify.org?format=json');
+    const data = await response.json();
+    return data.ip || 'Unknown';
+  } catch {
+    return 'Unknown';
+  }
+};
+
+/**
  * 로그인 기록 저장 (Supabase)
  */
 export const saveLoginHistory = async (
@@ -116,11 +129,15 @@ export const saveLoginHistory = async (
   userAgent?: string
 ): Promise<boolean> => {
   try {
+    // IP 주소 가져오기
+    const ipAddress = await getClientIP();
+
     const { error } = await supabase.from('login_history').insert({
       user_id: userId,
       user_name: userName,
       timestamp: Date.now(),
-      user_agent: userAgent || navigator.userAgent
+      user_agent: userAgent || navigator.userAgent,
+      ip_address: ipAddress
     });
 
     if (error) {
@@ -128,7 +145,7 @@ export const saveLoginHistory = async (
       return false;
     }
 
-    console.log('✅ 로그인 기록 저장 완료:', userName);
+    console.log('✅ 로그인 기록 저장 완료:', userName, '(IP:', ipAddress, ')');
     return true;
   } catch (err) {
     console.error('로그인 기록 저장 오류:', err);
@@ -157,7 +174,8 @@ export const getLoginHistory = async (): Promise<LoginHistory[]> => {
       userId: record.user_id,
       userName: record.user_name,
       timestamp: record.timestamp,
-      userAgent: record.user_agent
+      userAgent: record.user_agent,
+      ipAddress: record.ip_address || undefined
     }));
   } catch (err) {
     console.error('로그인 기록 조회 오류:', err);
@@ -231,12 +249,34 @@ export const insertQuestions = async (
 ): Promise<{ success: number; failed: number; errors: string[] }> => {
   const result = { success: 0, failed: 0, errors: [] as string[] };
 
+  // 기존 최대 ID 조회
+  let maxId = 0;
+  try {
+    const { data: maxData } = await supabase
+      .from('questions')
+      .select('id')
+      .order('id', { ascending: false })
+      .limit(1);
+
+    if (maxData && maxData.length > 0) {
+      maxId = maxData[0].id;
+      console.log('✅ 현재 최대 ID:', maxId);
+    } else {
+      console.log('ℹ️ 문제가 없어서 ID 1부터 시작합니다.');
+    }
+  } catch (err) {
+    console.warn('최대 ID 조회 실패:', err);
+  }
+
   // 첫 번째 삽입 시도로 스키마 확인
   if (questions.length > 0) {
     const firstQ = questions[0];
+    const newId = maxId + 1;
+    console.log('🔢 새 ID 생성:', newId);
 
-    // 먼저 모든 필드로 시도
+    // 먼저 모든 필드로 시도 (ID 포함)
     const fullInsertData: Record<string, unknown> = {
+      id: newId,
       category: firstQ.category,
       question: firstQ.question,
       option1: firstQ.option1,
@@ -258,8 +298,9 @@ export const insertQuestions = async (
     if (firstError) {
       console.warn('선택적 필드 포함 삽입 실패, 핵심 필드만으로 재시도:', firstError.message);
 
-      // 핵심 필드만으로 재시도
-      const coreInsertData = {
+      // 핵심 필드만으로 재시도 (weight 포함)
+      const coreInsertData: Record<string, unknown> = {
+        id: newId,
         category: firstQ.category,
         question: firstQ.question,
         option1: firstQ.option1,
@@ -267,7 +308,8 @@ export const insertQuestions = async (
         option3: firstQ.option3,
         option4: firstQ.option4,
         answer: firstQ.answer,
-        explanation: firstQ.explanation || ''
+        explanation: firstQ.explanation || '',
+        weight: firstQ.weight !== undefined ? firstQ.weight : 5
       };
 
       const { error: coreError } = await supabase.from('questions').insert(coreInsertData);
@@ -279,13 +321,16 @@ export const insertQuestions = async (
         return result; // 첫 번째도 실패하면 중단
       } else {
         result.success++;
+        maxId = newId; // 성공 시 maxId 업데이트
         console.log('✅ 핵심 필드만으로 삽입 성공, 나머지도 같은 방식으로 진행');
 
-        // 나머지 문제들을 핵심 필드만으로 삽입
+        // 나머지 문제들을 핵심 필드만으로 삽입 (weight 포함)
         for (let i = 1; i < questions.length; i++) {
           const q = questions[i];
+          const currentId = maxId + i;
           try {
             const { error } = await supabase.from('questions').insert({
+              id: currentId,
               category: q.category,
               question: q.question,
               option1: q.option1,
@@ -293,7 +338,8 @@ export const insertQuestions = async (
               option3: q.option3,
               option4: q.option4,
               answer: q.answer,
-              explanation: q.explanation || ''
+              explanation: q.explanation || '',
+              weight: q.weight !== undefined ? q.weight : 5
             });
 
             if (error) {
@@ -315,6 +361,7 @@ export const insertQuestions = async (
       }
     } else {
       result.success++;
+      maxId = newId; // 성공 시 maxId 업데이트
       console.log('✅ 선택적 필드 포함하여 삽입 성공');
     }
   }
@@ -322,8 +369,10 @@ export const insertQuestions = async (
   // 나머지 문제들 (첫 번째가 성공한 경우)
   for (let i = 1; i < questions.length; i++) {
     const q = questions[i];
+    const currentId = maxId + i;
     try {
       const insertData: Record<string, unknown> = {
+        id: currentId,
         category: q.category,
         question: q.question,
         option1: q.option1,
@@ -504,5 +553,103 @@ export const getExistingQuestionIds = async (): Promise<number[]> => {
   } catch (err) {
     console.error('문제 ID 조회 오류:', err);
     return [];
+  }
+};
+
+/**
+ * 제보 저장 (Supabase)
+ */
+export const saveFeedbackToSupabase = async (
+  feedback: Omit<Feedback, 'id' | 'timestamp'>
+): Promise<{ success: boolean; feedback?: Feedback; error?: string }> => {
+  try {
+    const timestamp = Date.now();
+
+    const { data, error } = await supabase.from('feedbacks').insert({
+      author: feedback.author,
+      user_id: feedback.userId || null,
+      content: feedback.content,
+      type: feedback.type || 'suggestion',
+      question_id: feedback.questionId || null,
+      question: feedback.question ? JSON.stringify(feedback.question) : null,
+      timestamp: timestamp
+    }).select('id').single();
+
+    if (error) {
+      console.error('제보 저장 실패:', error);
+      return { success: false, error: error.message };
+    }
+
+    const savedFeedback: Feedback = {
+      id: data.id,
+      author: feedback.author,
+      userId: feedback.userId,
+      content: feedback.content,
+      timestamp: timestamp,
+      type: feedback.type,
+      questionId: feedback.questionId,
+      question: feedback.question
+    };
+
+    console.log('✅ 제보 저장 완료 (Supabase):', savedFeedback.id);
+    return { success: true, feedback: savedFeedback };
+  } catch (err) {
+    console.error('제보 저장 오류:', err);
+    return { success: false, error: String(err) };
+  }
+};
+
+/**
+ * 제보 목록 조회 (Supabase)
+ */
+export const getFeedbacksFromSupabase = async (): Promise<Feedback[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('feedbacks')
+      .select('*')
+      .order('timestamp', { ascending: false })
+      .limit(500);
+
+    if (error) {
+      console.error('제보 조회 실패:', error);
+      return [];
+    }
+
+    return (data || []).map(record => ({
+      id: record.id,
+      author: record.author,
+      userId: record.user_id || undefined,
+      content: record.content,
+      timestamp: record.timestamp,
+      type: record.type || undefined,
+      questionId: record.question_id || undefined,
+      question: record.question ? JSON.parse(record.question) : undefined
+    }));
+  } catch (err) {
+    console.error('제보 조회 오류:', err);
+    return [];
+  }
+};
+
+/**
+ * 제보 삭제 (Supabase)
+ */
+export const deleteFeedbackFromSupabase = async (id: number): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('feedbacks')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('제보 삭제 실패:', error);
+      return false;
+    }
+
+    console.log('✅ 제보 삭제 완료 (Supabase):', id);
+    return true;
+  } catch (err) {
+    console.error('제보 삭제 오류:', err);
+    return false;
   }
 };

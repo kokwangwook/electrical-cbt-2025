@@ -45,6 +45,8 @@ import {
   insertQuestions,
   fetchQuestionsFromGoogleSheet,
   parseCSVToQuestions,
+  getFeedbacksFromSupabase,
+  deleteFeedbackFromSupabase,
 } from '../services/supabaseService';
 
 export default function Admin() {
@@ -99,6 +101,7 @@ export default function Admin() {
 
   // 제보 게시판
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
+  const [allFeedbacksCount, setAllFeedbacksCount] = useState<{ bug: number; suggestion: number; question: number }>({ bug: 0, suggestion: 0, question: 0 });
 
   // 동기화
   const [syncLoading, setSyncLoading] = useState(false);
@@ -145,6 +148,31 @@ export default function Admin() {
     memo: '',
   });
 
+  // UserAgent를 기기 타입으로 변환하는 함수
+  const getDeviceType = (userAgent?: string): string => {
+    if (!userAgent) return 'Unknown';
+
+    const ua = userAgent.toLowerCase();
+
+    // 태블릿 체크 (태블릿은 모바일보다 먼저 체크)
+    if (ua.includes('ipad') ||
+        (ua.includes('tablet') && !ua.includes('mobile')) ||
+        (ua.includes('android') && !ua.includes('mobile'))) {
+      return '태블릿';
+    }
+
+    // 스마트폰 체크
+    if (ua.includes('mobile') ||
+        ua.includes('iphone') ||
+        ua.includes('ipod') ||
+        (ua.includes('android') && ua.includes('mobile'))) {
+      return '스마트폰';
+    }
+
+    // PC
+    return 'PC';
+  };
+
   useEffect(() => {
     if (isAuthenticated) {
       loadQuestions();
@@ -185,14 +213,50 @@ export default function Admin() {
     setLoginHistory(history);
   };
 
-  const loadFeedbacks = () => {
-    const allFeedbacks = getFeedbacks();
-    // 하위 탭에 따라 필터링
-    if (feedbackSubTab === 'bug' || feedbackSubTab === 'suggestion' || feedbackSubTab === 'question') {
-      const filtered = allFeedbacks.filter(f => f.type === feedbackSubTab);
-      setFeedbacks(filtered);
-    } else {
-      setFeedbacks(allFeedbacks);
+  const loadFeedbacks = async () => {
+    try {
+      // Supabase에서 먼저 시도
+      const supabaseFeedbacks = await getFeedbacksFromSupabase();
+      let allFeedbacks: Feedback[];
+
+      if (supabaseFeedbacks.length > 0) {
+        allFeedbacks = supabaseFeedbacks;
+        console.log('✅ Supabase에서 제보 로드 (관리자):', supabaseFeedbacks.length);
+      } else {
+        // Supabase 실패 시 로컬에서 로드
+        allFeedbacks = getFeedbacks();
+        console.log('📦 로컬에서 제보 로드 (관리자):', allFeedbacks.length);
+      }
+
+      // 전체 개수 업데이트
+      setAllFeedbacksCount({
+        bug: allFeedbacks.filter(f => f.type === 'bug').length,
+        suggestion: allFeedbacks.filter(f => f.type === 'suggestion').length,
+        question: allFeedbacks.filter(f => f.type === 'question').length,
+      });
+
+      // 하위 탭에 따라 필터링
+      if (feedbackSubTab === 'bug' || feedbackSubTab === 'suggestion' || feedbackSubTab === 'question') {
+        const filtered = allFeedbacks.filter(f => f.type === feedbackSubTab);
+        setFeedbacks(filtered);
+      } else {
+        setFeedbacks(allFeedbacks);
+      }
+    } catch (error) {
+      console.error('제보 로드 실패:', error);
+      // 오류 시 로컬에서 로드
+      const localFeedbacks = getFeedbacks();
+      setAllFeedbacksCount({
+        bug: localFeedbacks.filter(f => f.type === 'bug').length,
+        suggestion: localFeedbacks.filter(f => f.type === 'suggestion').length,
+        question: localFeedbacks.filter(f => f.type === 'question').length,
+      });
+      if (feedbackSubTab === 'bug' || feedbackSubTab === 'suggestion' || feedbackSubTab === 'question') {
+        const filtered = localFeedbacks.filter(f => f.type === feedbackSubTab);
+        setFeedbacks(filtered);
+      } else {
+        setFeedbacks(localFeedbacks);
+      }
     }
   };
 
@@ -1271,7 +1335,7 @@ export default function Admin() {
                   : 'text-gray-600 hover:text-gray-800'
               }`}
             >
-              📋 제보 게시판 ({getFeedbacks().length})
+              📋 제보 게시판 ({allFeedbacksCount.bug + allFeedbacksCount.suggestion + allFeedbacksCount.question})
             </button>
             <button
               onClick={() => setActiveTab('upload')}
@@ -2618,7 +2682,8 @@ export default function Admin() {
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">회원 이름</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">회원 ID</th>
                         <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">로그인 시간</th>
-                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">브라우저 정보</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">기기 유형</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">IP 주소</th>
                         <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700">작업</th>
                       </tr>
                     </thead>
@@ -2638,8 +2703,18 @@ export default function Admin() {
                               second: '2-digit',
                             })}
                           </td>
-                          <td className="px-4 py-3 text-xs text-gray-500 max-w-md truncate" title={record.userAgent}>
-                            {record.userAgent || 'N/A'}
+                          <td className="px-4 py-3 text-sm font-semibold">
+                            <span className={`px-2 py-1 rounded ${
+                              getDeviceType(record.userAgent) === 'PC' ? 'bg-blue-100 text-blue-800' :
+                              getDeviceType(record.userAgent) === '태블릿' ? 'bg-green-100 text-green-800' :
+                              getDeviceType(record.userAgent) === '스마트폰' ? 'bg-purple-100 text-purple-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {getDeviceType(record.userAgent)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600">
+                            {record.ipAddress || 'N/A'}
                           </td>
                           <td className="px-4 py-3 text-center">
                             <button
@@ -2687,7 +2762,7 @@ export default function Admin() {
                       : 'text-gray-600 hover:text-gray-800'
                   }`}
                 >
-                  오류 제보 ({getFeedbacks().filter(f => f.type === 'bug').length})
+                  오류 제보 ({allFeedbacksCount.bug})
                 </button>
                 <button
                   onClick={() => setFeedbackSubTab('suggestion')}
@@ -2697,7 +2772,7 @@ export default function Admin() {
                       : 'text-gray-600 hover:text-gray-800'
                   }`}
                 >
-                  건의사항 ({getFeedbacks().filter(f => f.type === 'suggestion').length})
+                  건의사항 ({allFeedbacksCount.suggestion})
                 </button>
                 <button
                   onClick={() => setFeedbackSubTab('question')}
@@ -2707,7 +2782,7 @@ export default function Admin() {
                       : 'text-gray-600 hover:text-gray-800'
                   }`}
                 >
-                  문의사항 ({getFeedbacks().filter(f => f.type === 'question').length})
+                  문의사항 ({allFeedbacksCount.question})
                 </button>
               </div>
 
@@ -2744,10 +2819,15 @@ export default function Admin() {
                             {new Date(feedback.timestamp).toLocaleString('ko-KR')}
                           </span>
                           <button
-                            onClick={() => {
+                            onClick={async () => {
                               if (window.confirm('이 제보를 삭제하시겠습니까?')) {
-                                deleteFeedback(feedback.id);
-                                loadFeedbacks();
+                                // Supabase에서 먼저 삭제 시도
+                                const supabaseSuccess = await deleteFeedbackFromSupabase(feedback.id);
+                                if (!supabaseSuccess) {
+                                  // Supabase 실패 시 로컬에서 삭제
+                                  deleteFeedback(feedback.id);
+                                }
+                                await loadFeedbacks();
                               }
                             }}
                             className="text-red-500 hover:text-red-700 text-sm px-2 py-1"
@@ -2977,6 +3057,11 @@ export default function Admin() {
                             console.error('업로드 오류:', result.errors);
                           }
                           setUploadPreview([]);
+                          // 문제 수 자동 갱신
+                          if (result.success > 0) {
+                            const newCount = await getSupabaseQuestionCount();
+                            setSupabaseQuestionCount(newCount);
+                          }
                         } catch (err) {
                           setUploadStatus(`❌ 저장 실패: ${err}`);
                         } finally {
