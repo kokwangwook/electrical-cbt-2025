@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { getMemberByAnyCredential, setCurrentUser, getCurrentExamSession, clearCurrentExamSession, saveCurrentExamSession, getMembers, initializeData, addLoginHistory, saveMembers } from '../services/storage';
-import { saveLoginHistory, fetchAllMembersFromSupabase } from '../services/supabaseService';
+import { getMemberByAnyCredential, setCurrentUser, getCurrentExamSession, clearCurrentExamSession, saveCurrentExamSession, getMembers, initializeData, addLoginHistory, saveMembers, getWrongAnswers, saveWrongAnswers, getExamResults, saveExamResults, saveStatistics } from '../services/storage';
+import { saveLoginHistory, fetchAllMembersFromSupabase, fetchUserDataFromSupabase } from '../services/supabaseService';
+import type { WrongAnswer, ExamResult, Statistics } from '../types';
 
 interface LoginProps {
   onLoginSuccess: () => void;
@@ -27,41 +28,88 @@ export default function Login({ onLoginSuccess, onResumeExam, onGoToRegister }: 
       const supabaseMembers = await fetchAllMembersFromSupabase();
 
       if (supabaseMembers.length > 0) {
-        // Supabase 회원을 로컬 스토리지에 병합
-        const localMembers = getMembers();
-        const mergedMembers = [...localMembers];
+        // Supabase 회원 ID 목록
+        const supabaseIds = new Set(supabaseMembers.map(m => m.id));
 
-        for (const sMember of supabaseMembers) {
-          const existingIndex = mergedMembers.findIndex(m => m.id === sMember.id);
-          if (existingIndex !== -1) {
-            // 기존 회원 업데이트 (Supabase 데이터 우선)
-            mergedMembers[existingIndex] = {
-              ...mergedMembers[existingIndex],
-              name: sMember.name,
-              phone: sMember.phone,
-              email: sMember.email,
-              address: sMember.address,
-              memo: sMember.memo || mergedMembers[existingIndex].memo
-            };
-          } else {
-            // 새 회원 추가
-            mergedMembers.push({
-              id: sMember.id,
-              name: sMember.name,
-              phone: sMember.phone,
-              email: sMember.email,
-              address: sMember.address,
-              registeredAt: sMember.registeredAt,
-              memo: sMember.memo || ''
-            });
-          }
+        // Supabase를 source of truth로 사용
+        // Supabase에 있는 회원만 유지하고, 삭제된 회원은 제거
+        const mergedMembers = supabaseMembers.map(sMember => ({
+          id: sMember.id,
+          name: sMember.name,
+          phone: sMember.phone,
+          email: sMember.email,
+          address: sMember.address,
+          registeredAt: sMember.registeredAt,
+          memo: sMember.memo || ''
+        }));
+
+        // 로컬에만 있는 회원은 제거 (Supabase에서 삭제된 회원)
+        const localMembers = getMembers();
+        const removedMembers = localMembers.filter(m => !supabaseIds.has(m.id));
+        if (removedMembers.length > 0) {
+          console.log(`🗑️ 서버에서 삭제된 회원 ${removedMembers.length}명 로컬에서 제거:`, removedMembers.map(m => m.name));
         }
 
         saveMembers(mergedMembers);
-        console.log(`✅ 회원 목록 동기화 완료: ${supabaseMembers.length}명`);
+        console.log(`✅ 회원 목록 동기화 완료: ${supabaseMembers.length}명 (서버 기준)`);
+      } else {
+        console.log('ℹ️ Supabase에 회원이 없거나 연결 실패');
       }
     } catch (err) {
       console.warn('⚠️ Supabase 회원 동기화 실패:', err);
+    }
+  };
+
+  // 서버에서 사용자 학습 데이터 동기화
+  const syncUserDataFromSupabase = async (userId: number) => {
+    try {
+      console.log('🔄 서버에서 사용자 학습 데이터 동기화 중...');
+      const serverData = await fetchUserDataFromSupabase(userId);
+
+      if (serverData) {
+        // 서버 데이터와 로컬 데이터 병합 (서버 우선)
+        const localWrongAnswers = getWrongAnswers();
+        const localExamResults = getExamResults();
+
+        // 오답 노트 병합 (서버 데이터 우선, 더 최신 데이터 사용)
+        const serverWrongAnswers = serverData.wrongAnswers as WrongAnswer[];
+        const mergedWrongAnswers = [...serverWrongAnswers];
+
+        // 로컬에만 있는 오답 추가 (새로운 오답)
+        for (const localWA of localWrongAnswers) {
+          const existsInServer = serverWrongAnswers.some(swa => swa.questionId === localWA.questionId);
+          if (!existsInServer) {
+            mergedWrongAnswers.push(localWA);
+          }
+        }
+        saveWrongAnswers(mergedWrongAnswers);
+
+        // 시험 결과 병합 (중복 제거 후 합치기)
+        const serverExamResults = serverData.examResults as ExamResult[];
+        const mergedResults = [...serverExamResults];
+
+        // 로컬에만 있는 결과 추가
+        for (const localResult of localExamResults) {
+          const existsInServer = serverExamResults.some(sr => sr.timestamp === localResult.timestamp);
+          if (!existsInServer) {
+            mergedResults.push(localResult);
+          }
+        }
+        // 최신순 정렬 후 최근 100개만 유지
+        mergedResults.sort((a, b) => b.timestamp - a.timestamp);
+        saveExamResults(mergedResults.slice(0, 100));
+
+        // 통계는 서버 데이터 우선 사용
+        if (serverData.statistics) {
+          saveStatistics(serverData.statistics as Statistics);
+        }
+
+        console.log(`✅ 사용자 학습 데이터 동기화 완료: 오답 ${mergedWrongAnswers.length}개, 시험 ${mergedResults.length}개`);
+      } else {
+        console.log('ℹ️ 서버에 사용자 데이터가 없습니다 (신규 사용자)');
+      }
+    } catch (err) {
+      console.warn('⚠️ 사용자 학습 데이터 동기화 실패:', err);
     }
   };
 
@@ -107,6 +155,9 @@ export default function Login({ onLoginSuccess, onResumeExam, onGoToRegister }: 
 
     // 로그인 성공
     setCurrentUser(member.id);
+
+    // 서버에서 사용자 학습 데이터 동기화 (PC/모바일 데이터 일치)
+    await syncUserDataFromSupabase(member.id);
 
     // 로그인 기록 저장 (실패해도 로그인은 진행)
     const historySuccess = addLoginHistory(member.id, member.name);

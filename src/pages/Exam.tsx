@@ -19,7 +19,9 @@ import {
   saveExamResults,
   getGlobalLearningProgress,
   updateGlobalLearningProgress,
+  getStatistics,
 } from '../services/storage';
+import { saveUserDataToSupabase } from '../services/supabaseService';
 import type { ExamSession, ExamResult, WrongAnswer } from '../types';
 import LatexRenderer from '../components/LatexRenderer';
 import FeedbackBoard from '../components/FeedbackBoard';
@@ -505,7 +507,7 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
           const keptResults = sortedResults.slice(-keepCount);
           saveExamResults(keptResults);
           console.log(`🗑️ 오래된 시험 결과 ${sortedResults.length - keepCount}개 삭제`);
-          
+
           // 재시도
           addExamResult(result);
           updateStatistics(result);
@@ -515,7 +517,19 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
         }
       }
     }
-    
+
+    // 서버에 사용자 데이터 동기화 (PC/모바일 데이터 일치)
+    const userId = getCurrentUser();
+    if (userId) {
+      saveUserDataToSupabase(userId, {
+        wrongAnswers: getWrongAnswers(),
+        examResults: getExamResults(),
+        statistics: getStatistics()
+      }).catch(err => {
+        console.warn('⚠️ 서버 데이터 동기화 실패:', err);
+      });
+    }
+
     clearCurrentExamSession();
 
     // 결과 페이지로 이동 (answers를 배열로 변환)
