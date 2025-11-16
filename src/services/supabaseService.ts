@@ -224,70 +224,192 @@ export const checkEmailExists = async (email: string): Promise<boolean> => {
 };
 
 /**
- * 모든 문제 가져오기 (관리자용)
- * 페이지네이션을 사용하여 대용량 데이터 처리
+ * 문제 일괄 삽입 (Supabase)
  */
-export const fetchAllQuestions = async (): Promise<Question[]> => {
-  try {
-    console.log('📥 Supabase에서 모든 문제 가져오기 시작...');
+export const insertQuestions = async (
+  questions: Partial<Question>[]
+): Promise<{ success: number; failed: number; errors: string[] }> => {
+  const result = { success: 0, failed: 0, errors: [] as string[] };
 
-    const allQuestions: Question[] = [];
-    const pageSize = 1000; // Supabase 기본 limit
-    let offset = 0;
-    let hasMore = true;
-
-    while (hasMore) {
-      const { data, error } = await supabase
-        .from('questions')
-        .select('*')
-        .order('id', { ascending: true })
-        .range(offset, offset + pageSize - 1);
+  for (const q of questions) {
+    try {
+      const { error } = await supabase.from('questions').insert({
+        category: q.category,
+        question: q.question,
+        option1: q.option1,
+        option2: q.option2,
+        option3: q.option3,
+        option4: q.option4,
+        answer: q.answer,
+        explanation: q.explanation || '',
+        standard: q.standard || null,
+        detailItem: q.detailItem || null,
+        weight: q.weight || 5,
+        source: q.source || null,
+        hasImage: q.hasImage || false,
+        imageUrl: q.imageUrl || null,
+        mustInclude: q.mustInclude || false,
+        mustExclude: q.mustExclude || false
+      });
 
       if (error) {
-        console.error('문제 조회 실패:', error);
-        throw error;
-      }
-
-      if (!data || data.length === 0) {
-        hasMore = false;
+        result.failed++;
+        result.errors.push(`문제 삽입 실패: ${error.message}`);
       } else {
-        // Supabase 형식을 로컬 형식으로 변환
-        const convertedQuestions = data.map(q => ({
-          id: q.id,
-          category: q.category,
-          standard: q.standard || undefined,
-          detailItem: q.detailItem || undefined,
-          question: q.question,
-          option1: q.option1,
-          option2: q.option2,
-          option3: q.option3,
-          option4: q.option4,
-          answer: q.answer,
-          explanation: q.explanation,
-          imageUrl: q.imageUrl || undefined,
-          hasImage: q.hasImage || false,
-          mustInclude: q.mustInclude || false,
-          mustExclude: q.mustExclude || false,
-          weight: q.weight || 5,
-          source: q.source || undefined
-        }));
-
-        allQuestions.push(...convertedQuestions);
-        offset += pageSize;
-
-        console.log(`📊 ${allQuestions.length}개 문제 로드됨...`);
-
-        // 가져온 데이터가 pageSize보다 적으면 더 이상 없음
-        if (data.length < pageSize) {
-          hasMore = false;
-        }
+        result.success++;
       }
+    } catch (err) {
+      result.failed++;
+      result.errors.push(`문제 삽입 오류: ${err}`);
+    }
+  }
+
+  return result;
+};
+
+/**
+ * 구글 시트에서 문제 가져오기
+ */
+export const fetchQuestionsFromGoogleSheet = async (
+  sheetUrl: string
+): Promise<Partial<Question>[]> => {
+  try {
+    // 구글 시트 ID 추출
+    const match = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (!match) {
+      throw new Error('잘못된 구글 시트 URL입니다.');
+    }
+    const sheetId = match[1];
+
+    // CSV 형식으로 가져오기
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+    const response = await fetch(csvUrl);
+
+    if (!response.ok) {
+      throw new Error('구글 시트를 가져올 수 없습니다. 공개 설정을 확인하세요.');
     }
 
-    console.log(`✅ 총 ${allQuestions.length}개 문제 로드 완료`);
-    return allQuestions;
+    const csvText = await response.text();
+    return parseCSVToQuestions(csvText);
   } catch (err) {
-    console.error('모든 문제 조회 오류:', err);
+    console.error('구글 시트 가져오기 오류:', err);
+    throw err;
+  }
+};
+
+/**
+ * CSV 텍스트를 Question 배열로 파싱
+ */
+export const parseCSVToQuestions = (csvText: string): Partial<Question>[] => {
+  const lines = csvText.split('\n');
+  if (lines.length < 2) {
+    throw new Error('CSV 파일이 비어있습니다.');
+  }
+
+  // 헤더 파싱
+  const headers = parseCSVLine(lines[0]);
+  const headerMap: { [key: string]: number } = {};
+  headers.forEach((h, i) => {
+    headerMap[h.trim().toLowerCase()] = i;
+  });
+
+  const questions: Partial<Question>[] = [];
+
+  // 데이터 행 파싱
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    const values = parseCSVLine(line);
+
+    const category = values[headerMap['category']] || '';
+    const question = values[headerMap['question']] || '';
+    const option1 = values[headerMap['option1']] || '';
+    const option2 = values[headerMap['option2']] || '';
+    const option3 = values[headerMap['option3']] || '';
+    const option4 = values[headerMap['option4']] || '';
+    const answer = parseInt(values[headerMap['answer']] || '0', 10);
+    const explanation = values[headerMap['explanation']] || '';
+    const standard = values[headerMap['standard']] || '';
+    const detailItem = values[headerMap['detailitem']] || values[headerMap['detailItem']] || '';
+    const weight = parseInt(values[headerMap['weights']] || values[headerMap['weight']] || '5', 10);
+    const source = values[headerMap['source']] || '';
+
+    // 필수 필드 검증
+    if (!category || !question || !option1 || !answer) {
+      console.warn(`행 ${i + 1} 건너뜀: 필수 필드 누락`);
+      continue;
+    }
+
+    questions.push({
+      category,
+      question,
+      option1,
+      option2,
+      option3,
+      option4,
+      answer,
+      explanation,
+      standard: standard || undefined,
+      detailItem: detailItem || undefined,
+      weight: weight || 5,
+      source: source || undefined,
+      hasImage: false,
+      mustInclude: false,
+      mustExclude: false
+    });
+  }
+
+  return questions;
+};
+
+/**
+ * CSV 라인 파싱 (쉼표와 따옴표 처리)
+ */
+const parseCSVLine = (line: string): string[] => {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+
+  result.push(current.trim());
+  return result;
+};
+
+/**
+ * 기존 문제 ID 목록 가져오기
+ */
+export const getExistingQuestionIds = async (): Promise<number[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('questions')
+      .select('id');
+
+    if (error) {
+      console.error('문제 ID 조회 실패:', error);
+      return [];
+    }
+
+    return (data || []).map(q => q.id);
+  } catch (err) {
+    console.error('문제 ID 조회 오류:', err);
     return [];
   }
 };
