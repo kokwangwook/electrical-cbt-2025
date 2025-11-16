@@ -263,17 +263,27 @@ export default function Admin() {
   const loadLoginHistory = async () => {
     setIsLoadingLoginHistory(true);
     try {
-      // Supabase에서 로그인 기록 불러오기 (모바일/태블릿 포함)
+      // Supabase에서 로그인 기록 불러오기
       const supabaseHistory = await getLoginHistoryFromSupabase();
-      if (supabaseHistory.length > 0) {
-        setLoginHistory(supabaseHistory);
-        console.log('✅ Supabase 로그인 기록 로드:', supabaseHistory.length, '개');
-      } else {
-        // Supabase에 데이터가 없으면 localStorage 폴백
-        const localHistory = getLoginHistory();
-        setLoginHistory(localHistory);
-        console.log('ℹ️ localStorage 로그인 기록 사용:', localHistory.length, '개');
+      // localStorage에서도 로그인 기록 불러오기
+      const localHistory = getLoginHistory();
+
+      // 두 데이터 소스를 병합 (중복 제거)
+      const mergedHistory = [...supabaseHistory];
+      const supabaseIds = new Set(supabaseHistory.map(h => h.id));
+
+      // localStorage에만 있는 기록 추가 (Supabase 저장 실패한 모바일 기록 포함)
+      for (const local of localHistory) {
+        if (!supabaseIds.has(local.id)) {
+          mergedHistory.push(local);
+        }
       }
+
+      // 시간순 정렬 (최신순)
+      mergedHistory.sort((a, b) => b.timestamp - a.timestamp);
+
+      setLoginHistory(mergedHistory);
+      console.log(`✅ 로그인 기록 로드: Supabase ${supabaseHistory.length}개, localStorage ${localHistory.length}개, 병합 후 ${mergedHistory.length}개`);
     } catch (err) {
       console.error('로그인 기록 로드 실패:', err);
       // 에러 시 localStorage 폴백
