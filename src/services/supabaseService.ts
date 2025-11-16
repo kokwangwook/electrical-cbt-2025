@@ -1,6 +1,6 @@
 // Supabase Service - 서버에서 직접 문제 가져오기
 import { supabase } from './supabaseClient';
-import type { Question, LoginHistory } from '../types';
+import type { Question, LoginHistory, Feedback } from '../types';
 
 /**
  * 카테고리별 랜덤 문제 가져오기 (서버에서 직접 선택)
@@ -524,5 +524,103 @@ export const getExistingQuestionIds = async (): Promise<number[]> => {
   } catch (err) {
     console.error('문제 ID 조회 오류:', err);
     return [];
+  }
+};
+
+/**
+ * 제보 저장 (Supabase)
+ */
+export const saveFeedbackToSupabase = async (
+  feedback: Omit<Feedback, 'id' | 'timestamp'>
+): Promise<{ success: boolean; feedback?: Feedback; error?: string }> => {
+  try {
+    const timestamp = Date.now();
+
+    const { data, error } = await supabase.from('feedbacks').insert({
+      author: feedback.author,
+      user_id: feedback.userId || null,
+      content: feedback.content,
+      type: feedback.type || 'suggestion',
+      question_id: feedback.questionId || null,
+      question: feedback.question ? JSON.stringify(feedback.question) : null,
+      timestamp: timestamp
+    }).select('id').single();
+
+    if (error) {
+      console.error('제보 저장 실패:', error);
+      return { success: false, error: error.message };
+    }
+
+    const savedFeedback: Feedback = {
+      id: data.id,
+      author: feedback.author,
+      userId: feedback.userId,
+      content: feedback.content,
+      timestamp: timestamp,
+      type: feedback.type,
+      questionId: feedback.questionId,
+      question: feedback.question
+    };
+
+    console.log('✅ 제보 저장 완료 (Supabase):', savedFeedback.id);
+    return { success: true, feedback: savedFeedback };
+  } catch (err) {
+    console.error('제보 저장 오류:', err);
+    return { success: false, error: String(err) };
+  }
+};
+
+/**
+ * 제보 목록 조회 (Supabase)
+ */
+export const getFeedbacksFromSupabase = async (): Promise<Feedback[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('feedbacks')
+      .select('*')
+      .order('timestamp', { ascending: false })
+      .limit(500);
+
+    if (error) {
+      console.error('제보 조회 실패:', error);
+      return [];
+    }
+
+    return (data || []).map(record => ({
+      id: record.id,
+      author: record.author,
+      userId: record.user_id || undefined,
+      content: record.content,
+      timestamp: record.timestamp,
+      type: record.type || undefined,
+      questionId: record.question_id || undefined,
+      question: record.question ? JSON.parse(record.question) : undefined
+    }));
+  } catch (err) {
+    console.error('제보 조회 오류:', err);
+    return [];
+  }
+};
+
+/**
+ * 제보 삭제 (Supabase)
+ */
+export const deleteFeedbackFromSupabase = async (id: number): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('feedbacks')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('제보 삭제 실패:', error);
+      return false;
+    }
+
+    console.log('✅ 제보 삭제 완료 (Supabase):', id);
+    return true;
+  } catch (err) {
+    console.error('제보 삭제 오류:', err);
+    return false;
   }
 };

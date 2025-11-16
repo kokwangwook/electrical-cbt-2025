@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { Feedback, Question } from '../types';
 import { getFeedbacks, addFeedback, deleteFeedback, getCurrentUser, getMemberById } from '../services/storage';
+import { saveFeedbackToSupabase, getFeedbacksFromSupabase, deleteFeedbackFromSupabase } from '../services/supabaseService';
 import LatexRenderer from './LatexRenderer';
 
 interface FeedbackBoardProps {
@@ -20,22 +21,41 @@ export default function FeedbackBoard({ onClose, currentQuestion, currentQuestio
   const [viewMode, setViewMode] = useState<'all' | 'myFeedbacks'>('all'); // 전체 보기 / 나의 제보 내역
 
 
-  const loadFeedbacks = () => {
-    const allFeedbacks = getFeedbacks();
-    const currentUserId = getCurrentUser();
-    
-    if (viewMode === 'myFeedbacks' && currentUserId) {
-      // 나의 제보 내역만 필터링
-      const myFeedbacks = allFeedbacks.filter(f => f.userId === currentUserId);
-      setFeedbacks(myFeedbacks);
-    } else {
-      // 전체 제보 또는 타입별 필터링
-      if (feedbackType === 'suggestion' || feedbackType === 'bug' || feedbackType === 'question') {
-        const filtered = allFeedbacks.filter(f => f.type === feedbackType);
-        setFeedbacks(filtered);
+  const loadFeedbacks = async () => {
+    try {
+      // Supabase에서 먼저 시도
+      const supabaseFeedbacks = await getFeedbacksFromSupabase();
+      let allFeedbacks: Feedback[];
+
+      if (supabaseFeedbacks.length > 0) {
+        allFeedbacks = supabaseFeedbacks;
+        console.log('✅ Supabase에서 제보 로드:', supabaseFeedbacks.length);
       } else {
-        setFeedbacks(allFeedbacks);
+        // Supabase 실패 시 로컬에서 로드
+        allFeedbacks = getFeedbacks();
+        console.log('📦 로컬에서 제보 로드:', allFeedbacks.length);
       }
+
+      const currentUserId = getCurrentUser();
+
+      if (viewMode === 'myFeedbacks' && currentUserId) {
+        // 나의 제보 내역만 필터링
+        const myFeedbacks = allFeedbacks.filter(f => f.userId === currentUserId);
+        setFeedbacks(myFeedbacks);
+      } else {
+        // 전체 제보 또는 타입별 필터링
+        if (feedbackType === 'suggestion' || feedbackType === 'bug' || feedbackType === 'question') {
+          const filtered = allFeedbacks.filter(f => f.type === feedbackType);
+          setFeedbacks(filtered);
+        } else {
+          setFeedbacks(allFeedbacks);
+        }
+      }
+    } catch (error) {
+      console.error('제보 로드 실패:', error);
+      // 오류 시 로컬에서 로드
+      const localFeedbacks = getFeedbacks();
+      setFeedbacks(localFeedbacks);
     }
   };
 
@@ -43,7 +63,7 @@ export default function FeedbackBoard({ onClose, currentQuestion, currentQuestio
     loadFeedbacks();
   }, [viewMode, feedbackType]);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!newFeedback.trim()) {
       alert('내용을 입력해주세요.');
       return;
@@ -69,11 +89,20 @@ export default function FeedbackBoard({ onClose, currentQuestion, currentQuestio
         feedbackData.question = currentQuestion;
       }
 
-      addFeedback(feedbackData);
+      // Supabase에 먼저 저장 시도
+      const supabaseResult = await saveFeedbackToSupabase(feedbackData);
+
+      if (supabaseResult.success) {
+        console.log('✅ Supabase에 제보 저장 성공');
+      } else {
+        console.warn('⚠️ Supabase 저장 실패, 로컬에 저장:', supabaseResult.error);
+        // Supabase 실패 시 로컬에 백업 저장
+        addFeedback(feedbackData);
+      }
 
       setNewFeedback('');
       setFeedbackType('bug'); // 기본값으로 리셋
-      loadFeedbacks();
+      await loadFeedbacks();
       alert('✅ 제보가 등록되었습니다. 감사합니다!');
     } catch (error) {
       console.error('피드백 등록 실패:', error);
@@ -83,10 +112,17 @@ export default function FeedbackBoard({ onClose, currentQuestion, currentQuestio
     }
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = async (id: number) => {
     if (window.confirm('이 제보를 삭제하시겠습니까?')) {
-      deleteFeedback(id);
-      loadFeedbacks();
+      // Supabase에서 먼저 삭제 시도
+      const supabaseSuccess = await deleteFeedbackFromSupabase(id);
+
+      if (!supabaseSuccess) {
+        // Supabase 실패 시 로컬에서 삭제
+        deleteFeedback(id);
+      }
+
+      await loadFeedbacks();
     }
   };
 
