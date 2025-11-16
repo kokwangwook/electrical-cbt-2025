@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import type { Feedback, Question } from '../types';
-import { getFeedbacks, addFeedback, deleteFeedback, getCurrentUser, getMemberById } from '../services/storage';
-import { saveFeedbackToSupabase, getFeedbacksFromSupabase, deleteFeedbackFromSupabase } from '../services/supabaseService';
+import { addFeedback, getCurrentUser, getMemberById } from '../services/storage';
+import { saveFeedbackToSupabase } from '../services/supabaseService';
+import { useFeedbacks } from '../hooks/useFeedbacks';
 import LatexRenderer from './LatexRenderer';
 
 interface FeedbackBoardProps {
@@ -11,64 +12,28 @@ interface FeedbackBoardProps {
 }
 
 export default function FeedbackBoard({ onClose, currentQuestion, currentQuestionIndex }: FeedbackBoardProps) {
-  const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [newFeedback, setNewFeedback] = useState('');
   // 문제가 있으면 기본값을 'bug'로, 없으면 'suggestion'으로 설정
   const [feedbackType, setFeedbackType] = useState<'suggestion' | 'bug' | 'question'>(
     currentQuestion ? 'bug' : 'suggestion'
   );
-  const [loading, setLoading] = useState(false);
+  const [submitLoading, setSubmitLoading] = useState(false);
 
-
-  const loadFeedbacks = async () => {
-    try {
-      // Supabase에서 먼저 시도
-      const supabaseFeedbacks = await getFeedbacksFromSupabase();
-      let allFeedbacks: Feedback[];
-
-      if (supabaseFeedbacks.length > 0) {
-        allFeedbacks = supabaseFeedbacks;
-        console.log('✅ Supabase에서 제보 로드:', supabaseFeedbacks.length);
-      } else {
-        // Supabase 실패 시 로컬에서 로드
-        allFeedbacks = getFeedbacks();
-        console.log('📦 로컬에서 제보 로드:', allFeedbacks.length);
-      }
-
-      const currentUserId = getCurrentUser();
-
-      // 사용자는 자신의 제보만 볼 수 있음 (개인정보 보호)
-      if (currentUserId) {
-        const myFeedbacks = allFeedbacks.filter(f => f.userId === currentUserId);
-
-        // 타입별 필터링
-        if (feedbackType === 'suggestion' || feedbackType === 'bug' || feedbackType === 'question') {
-          const filtered = myFeedbacks.filter(f => f.type === feedbackType);
-          setFeedbacks(filtered);
-        } else {
-          setFeedbacks(myFeedbacks);
-        }
-      } else {
-        // 비로그인 사용자는 제보 목록을 볼 수 없음
-        setFeedbacks([]);
-      }
-    } catch (error) {
-      console.error('제보 로드 실패:', error);
-      // 오류 시 로컬에서 로드 (자신의 제보만)
-      const localFeedbacks = getFeedbacks();
-      const currentUserId = getCurrentUser();
-      if (currentUserId) {
-        const myFeedbacks = localFeedbacks.filter(f => f.userId === currentUserId);
-        setFeedbacks(myFeedbacks);
-      } else {
-        setFeedbacks([]);
-      }
-    }
-  };
+  // 커스텀 훅 사용
+  const {
+    feedbacks,
+    loading,
+    error,
+    loadFeedbacks,
+    deleteFeedbackItem
+  } = useFeedbacks({
+    isAdmin: false,
+    filterType: feedbackType
+  });
 
   useEffect(() => {
     loadFeedbacks();
-  }, [feedbackType]);
+  }, [feedbackType, loadFeedbacks]);
 
   const handleSubmit = async () => {
     if (!newFeedback.trim()) {
@@ -76,7 +41,7 @@ export default function FeedbackBoard({ onClose, currentQuestion, currentQuestio
       return;
     }
 
-    setLoading(true);
+    setSubmitLoading(true);
     try {
       const currentUserId = getCurrentUser();
       const currentUser = currentUserId ? getMemberById(currentUserId) : null;
@@ -111,25 +76,20 @@ export default function FeedbackBoard({ onClose, currentQuestion, currentQuestio
       setFeedbackType('bug'); // 기본값으로 리셋
       await loadFeedbacks();
       alert('✅ 제보가 등록되었습니다. 감사합니다!');
-    } catch (error) {
-      console.error('피드백 등록 실패:', error);
+    } catch (err) {
+      console.error('피드백 등록 실패:', err);
       alert('❌ 제보 등록에 실패했습니다. 다시 시도해주세요.');
     } finally {
-      setLoading(false);
+      setSubmitLoading(false);
     }
   };
 
   const handleDelete = async (id: number) => {
     if (window.confirm('이 제보를 삭제하시겠습니까?')) {
-      // Supabase에서 먼저 삭제 시도
-      const supabaseSuccess = await deleteFeedbackFromSupabase(id);
-
-      if (!supabaseSuccess) {
-        // Supabase 실패 시 로컬에서 삭제
-        deleteFeedback(id);
+      const success = await deleteFeedbackItem(id);
+      if (!success) {
+        alert('❌ 제보 삭제에 실패했습니다.');
       }
-
-      await loadFeedbacks();
     }
   };
 
@@ -209,9 +169,22 @@ export default function FeedbackBoard({ onClose, currentQuestion, currentQuestio
             </p>
           </div>
 
+          {/* 에러 메시지 */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+              <p className="text-sm text-red-800">
+                ⚠️ {error}
+              </p>
+            </div>
+          )}
+
           {/* 피드백 목록 */}
           <div className="space-y-4 mb-6">
-            {feedbacks.length === 0 ? (
+            {loading ? (
+              <div className="text-center py-8 text-gray-500">
+                로딩 중...
+              </div>
+            ) : feedbacks.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 등록한 제보가 없습니다.
               </div>
@@ -322,10 +295,10 @@ export default function FeedbackBoard({ onClose, currentQuestion, currentQuestio
               </div>
               <button
                 onClick={handleSubmit}
-                disabled={loading || !newFeedback.trim()}
+                disabled={submitLoading || !newFeedback.trim()}
                 className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
               >
-                {loading ? '등록 중...' : '📝 제보 등록'}
+                {submitLoading ? '등록 중...' : '📝 제보 등록'}
               </button>
             </div>
           </div>

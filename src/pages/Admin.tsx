@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { Question, Member, ExamConfig, Feedback } from '../types';
+import type { Question, Member, ExamConfig } from '../types';
 import {
   getQuestions,
   addQuestion,
@@ -21,8 +21,6 @@ import {
   clearAllCaches,
   compressImage,
   getLocalStorageUsage,
-  getFeedbacks,
-  deleteFeedback,
 } from '../services/storage';
 import type { LoginHistory } from '../types';
 import {
@@ -45,9 +43,8 @@ import {
   insertQuestions,
   fetchQuestionsFromGoogleSheet,
   parseCSVToQuestions,
-  getFeedbacksFromSupabase,
-  deleteFeedbackFromSupabase,
 } from '../services/supabaseService';
+import { useFeedbacks } from '../hooks/useFeedbacks';
 
 export default function Admin() {
   // 인증
@@ -99,9 +96,18 @@ export default function Admin() {
   // 로그인 기록
   const [loginHistory, setLoginHistory] = useState<LoginHistory[]>([]);
 
-  // 제보 게시판
-  const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
-  const [allFeedbacksCount, setAllFeedbacksCount] = useState<{ bug: number; suggestion: number; question: number }>({ bug: 0, suggestion: 0, question: 0 });
+  // 제보 게시판 - 커스텀 훅 사용
+  const {
+    feedbacks,
+    allFeedbacksCount,
+    loading: feedbacksLoading,
+    error: feedbacksError,
+    loadFeedbacks,
+    deleteFeedbackItem
+  } = useFeedbacks({
+    isAdmin: true,
+    filterType: feedbackSubTab
+  });
 
   // 동기화
   const [syncLoading, setSyncLoading] = useState(false);
@@ -186,7 +192,7 @@ export default function Admin() {
     if (activeTab === 'feedbacks') {
       loadFeedbacks();
     }
-  }, [activeTab, feedbackSubTab]);
+  }, [activeTab, feedbackSubTab, loadFeedbacks]);
 
   const handleLogin = () => {
     if (password === ADMIN_PASSWORD) {
@@ -213,52 +219,7 @@ export default function Admin() {
     setLoginHistory(history);
   };
 
-  const loadFeedbacks = async () => {
-    try {
-      // Supabase에서 먼저 시도
-      const supabaseFeedbacks = await getFeedbacksFromSupabase();
-      let allFeedbacks: Feedback[];
-
-      if (supabaseFeedbacks.length > 0) {
-        allFeedbacks = supabaseFeedbacks;
-        console.log('✅ Supabase에서 제보 로드 (관리자):', supabaseFeedbacks.length);
-      } else {
-        // Supabase 실패 시 로컬에서 로드
-        allFeedbacks = getFeedbacks();
-        console.log('📦 로컬에서 제보 로드 (관리자):', allFeedbacks.length);
-      }
-
-      // 전체 개수 업데이트
-      setAllFeedbacksCount({
-        bug: allFeedbacks.filter(f => f.type === 'bug').length,
-        suggestion: allFeedbacks.filter(f => f.type === 'suggestion').length,
-        question: allFeedbacks.filter(f => f.type === 'question').length,
-      });
-
-      // 하위 탭에 따라 필터링
-      if (feedbackSubTab === 'bug' || feedbackSubTab === 'suggestion' || feedbackSubTab === 'question') {
-        const filtered = allFeedbacks.filter(f => f.type === feedbackSubTab);
-        setFeedbacks(filtered);
-      } else {
-        setFeedbacks(allFeedbacks);
-      }
-    } catch (error) {
-      console.error('제보 로드 실패:', error);
-      // 오류 시 로컬에서 로드
-      const localFeedbacks = getFeedbacks();
-      setAllFeedbacksCount({
-        bug: localFeedbacks.filter(f => f.type === 'bug').length,
-        suggestion: localFeedbacks.filter(f => f.type === 'suggestion').length,
-        question: localFeedbacks.filter(f => f.type === 'question').length,
-      });
-      if (feedbackSubTab === 'bug' || feedbackSubTab === 'suggestion' || feedbackSubTab === 'question') {
-        const filtered = localFeedbacks.filter(f => f.type === feedbackSubTab);
-        setFeedbacks(filtered);
-      } else {
-        setFeedbacks(localFeedbacks);
-      }
-    }
-  };
+  // loadFeedbacks는 useFeedbacks 훅에서 제공됨
 
   // 문제 현황 계산
   const questionStats = {
@@ -2786,7 +2747,20 @@ export default function Admin() {
                 </button>
               </div>
 
-              {feedbacks.length === 0 ? (
+              {/* 에러 메시지 */}
+              {feedbacksError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                  <p className="text-sm text-red-800">
+                    ⚠️ {feedbacksError}
+                  </p>
+                </div>
+              )}
+
+              {feedbacksLoading ? (
+                <div className="text-center py-12 text-gray-500">
+                  <p className="text-lg">로딩 중...</p>
+                </div>
+              ) : feedbacks.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
                   <p className="text-lg">등록된 제보가 없습니다.</p>
                 </div>
@@ -2821,13 +2795,10 @@ export default function Admin() {
                           <button
                             onClick={async () => {
                               if (window.confirm('이 제보를 삭제하시겠습니까?')) {
-                                // Supabase에서 먼저 삭제 시도
-                                const supabaseSuccess = await deleteFeedbackFromSupabase(feedback.id);
-                                if (!supabaseSuccess) {
-                                  // Supabase 실패 시 로컬에서 삭제
-                                  deleteFeedback(feedback.id);
+                                const success = await deleteFeedbackItem(feedback.id);
+                                if (!success) {
+                                  alert('❌ 제보 삭제에 실패했습니다.');
                                 }
-                                await loadFeedbacks();
                               }
                             }}
                             className="text-red-500 hover:text-red-700 text-sm px-2 py-1"
