@@ -822,3 +822,79 @@ export const deleteFeedbackFromSupabase = async (id: number): Promise<boolean> =
     return false;
   }
 };
+
+/**
+ * 사용자 학습 데이터 저장 (Supabase)
+ */
+export const saveUserDataToSupabase = async (
+  userId: number,
+  data: {
+    wrongAnswers: unknown[];
+    examResults: unknown[];
+    statistics: unknown;
+  }
+): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('user_data')
+      .upsert({
+        user_id: userId,
+        wrong_answers: data.wrongAnswers,
+        exam_results: data.examResults,
+        statistics: data.statistics,
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'user_id'
+      });
+
+    if (error) {
+      console.error('사용자 데이터 저장 실패:', error);
+      return false;
+    }
+
+    console.log('✅ 사용자 데이터 저장 완료:', userId);
+    return true;
+  } catch (err) {
+    console.error('사용자 데이터 저장 오류:', err);
+    return false;
+  }
+};
+
+/**
+ * 사용자 학습 데이터 불러오기 (Supabase)
+ */
+export const fetchUserDataFromSupabase = async (
+  userId: number
+): Promise<{
+  wrongAnswers: unknown[];
+  examResults: unknown[];
+  statistics: unknown;
+} | null> => {
+  try {
+    const { data, error } = await supabase
+      .from('user_data')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        // 데이터가 없는 경우 (정상)
+        console.log('ℹ️ 사용자 데이터가 없습니다:', userId);
+        return null;
+      }
+      console.error('사용자 데이터 불러오기 실패:', error);
+      return null;
+    }
+
+    console.log('✅ 사용자 데이터 불러오기 완료:', userId);
+    return {
+      wrongAnswers: data.wrong_answers || [],
+      examResults: data.exam_results || [],
+      statistics: data.statistics || null
+    };
+  } catch (err) {
+    console.error('사용자 데이터 불러오기 오류:', err);
+    return null;
+  }
+};
