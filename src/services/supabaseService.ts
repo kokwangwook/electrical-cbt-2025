@@ -601,8 +601,9 @@ export const saveFeedbackToSupabase = async (
 
 /**
  * 제보 목록 조회 (Supabase)
+ * @returns { success: boolean; data: Feedback[]; error?: string }
  */
-export const getFeedbacksFromSupabase = async (): Promise<Feedback[]> => {
+export const getFeedbacksFromSupabase = async (): Promise<{ success: boolean; data: Feedback[]; error?: string }> => {
   try {
     const { data, error } = await supabase
       .from('feedbacks')
@@ -612,10 +613,10 @@ export const getFeedbacksFromSupabase = async (): Promise<Feedback[]> => {
 
     if (error) {
       console.error('제보 조회 실패:', error);
-      return [];
+      return { success: false, data: [], error: error.message };
     }
 
-    return (data || []).map(record => ({
+    const feedbacks = (data || []).map(record => ({
       id: record.id,
       author: record.author,
       userId: record.user_id || undefined,
@@ -625,9 +626,12 @@ export const getFeedbacksFromSupabase = async (): Promise<Feedback[]> => {
       questionId: record.question_id || undefined,
       question: record.question ? JSON.parse(record.question) : undefined
     }));
+
+    console.log('✅ Supabase에서 제보 조회 성공:', feedbacks.length, '개');
+    return { success: true, data: feedbacks };
   } catch (err) {
     console.error('제보 조회 오류:', err);
-    return [];
+    return { success: false, data: [], error: String(err) };
   }
 };
 
