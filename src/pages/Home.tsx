@@ -33,7 +33,6 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
   const [loading, setLoading] = useState<boolean>(false);
   const [hasPreviousSession, setHasPreviousSession] = useState<boolean>(false);
   const [previousSession, setPreviousSession] = useState<ExamSession | null>(null);
-  const [loadingProgress, setLoadingProgress] = useState<string>('');
 
   const currentUserId = getCurrentUser();
   const currentUser = currentUserId ? getMemberById(currentUserId) : null;
@@ -160,7 +159,6 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
         const modeLabel = mode === 'timedRandom' ? '실전 모의고사' : '랜덤 60문제';
         console.log(`🎲 ${modeLabel}: 서버에서 직접 60문제 가져오기`);
 
-        setLoadingProgress('서버에서 랜덤 60문제를 가져오는 중...');
         examQuestions = await fetchRandom60Questions();
         console.log(`✅ 서버에서 가져온 문제: ${examQuestions.length}개`);
 
@@ -176,21 +174,18 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
         if (examQuestions.length === 0) {
           alert('❌ 서버에서 문제를 가져올 수 없습니다.\n\n네트워크 연결을 확인하거나 관리자에게 문의하세요.');
           setLoading(false);
-          setLoadingProgress('');
           return;
         }
       } else if (mode === 'category') {
         // 카테고리별 모드: 서버에서 해당 카테고리 20문제 가져오기
         console.log(`📚 카테고리 모드: ${selectedCategory} (서버에서 직접 가져오기)`);
 
-        setLoadingProgress(`${selectedCategory}에서 20문제를 가져오는 중...`);
         examQuestions = await fetchRandomQuestions(selectedCategory, 20);
         console.log(`✅ 서버에서 가져온 문제: ${examQuestions.length}개`);
 
         if (examQuestions.length === 0) {
           alert(`${selectedCategory} 카테고리에 문제가 없습니다.`);
           setLoading(false);
-          setLoadingProgress('');
           return;
         }
 
@@ -223,13 +218,11 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
         // 복습 모드: 학습 진도 1-5만 포함 (완벽 이해 6 제외)
         console.log('📚 복습 모드: 학습 진도 기반 문제 선택');
         
-        setLoadingProgress('학습 진도 기반 문제를 선택하는 중...');
         examQuestions = getReviewQuestions();
         
         if (examQuestions.length === 0) {
           alert('복습할 문제가 없습니다.\n\n학습 진도를 체크한 문제가 없거나, 모든 문제가 완벽 이해 상태입니다.');
           setLoading(false);
-          setLoadingProgress('');
           return;
         }
         
@@ -239,8 +232,6 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
           );
         }
       }
-
-      setLoadingProgress('');
 
       const currentUserId = getCurrentUser();
       // 세션 저장
@@ -282,7 +273,6 @@ export default function Home({ onStartExam, onGoToWrongAnswers, onGoToStatistics
       alert('시험을 시작하는 중 오류가 발생했습니다.\n\n네트워크 연결을 확인해주세요.');
     } finally {
       setLoading(false);
-      setLoadingProgress('');
     }
   };
 
