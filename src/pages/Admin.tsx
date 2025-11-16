@@ -41,6 +41,11 @@ import {
   type MigrationProgress,
   type SupabaseUsageStats,
 } from '../services/supabaseMigration';
+import {
+  insertQuestions,
+  fetchQuestionsFromGoogleSheet,
+  parseCSVToQuestions,
+} from '../services/supabaseService';
 
 export default function Admin() {
   // 인증
@@ -49,8 +54,16 @@ export default function Admin() {
   const ADMIN_PASSWORD = 'admin2024';
 
   // 탭
-  const [activeTab, setActiveTab] = useState<'questions' | 'members' | 'sync' | 'statistics' | 'config' | 'login-history' | 'feedbacks'>('questions');
+  const [activeTab, setActiveTab] = useState<'questions' | 'members' | 'sync' | 'statistics' | 'config' | 'login-history' | 'feedbacks' | 'upload'>('questions');
   const [feedbackSubTab, setFeedbackSubTab] = useState<'bug' | 'suggestion' | 'question'>('bug'); // 제보 게시판 하위 탭
+
+  // 문제 업로드
+  const [uploadMethod, setUploadMethod] = useState<'googleSheet' | 'csv'>('googleSheet');
+  const [googleSheetUrl, setGoogleSheetUrl] = useState('');
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [uploadPreview, setUploadPreview] = useState<Partial<Question>[]>([]);
+  const [uploadStatus, setUploadStatus] = useState<string>('');
+  const [isUploading, setIsUploading] = useState(false);
 
   // 출제 설정
   const [examConfig, setExamConfig] = useState<ExamConfig>(getExamConfig());
@@ -1259,6 +1272,16 @@ export default function Admin() {
               }`}
             >
               📋 제보 게시판 ({getFeedbacks().length})
+            </button>
+            <button
+              onClick={() => setActiveTab('upload')}
+              className={`flex-1 py-4 px-6 font-semibold transition-colors ${
+                activeTab === 'upload'
+                  ? 'border-b-2 border-blue-500 text-blue-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              📤 문제 업로드
             </button>
           </div>
         </div>
@@ -2747,6 +2770,225 @@ export default function Admin() {
                       <p className="text-gray-700 whitespace-pre-wrap">{feedback.content}</p>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 문제 업로드 탭 */}
+        {activeTab === 'upload' && (
+          <div>
+            <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+              <h2 className="text-xl font-bold text-gray-800 mb-4">📤 문제 업로드</h2>
+              <p className="text-gray-600 mb-6">
+                구글 시트 또는 CSV 파일에서 문제를 가져와 Supabase DB에 저장합니다.
+              </p>
+
+              {/* 업로드 방법 선택 */}
+              <div className="flex gap-4 mb-6">
+                <button
+                  onClick={() => setUploadMethod('googleSheet')}
+                  className={`flex-1 p-4 rounded-lg border-2 transition-all ${
+                    uploadMethod === 'googleSheet'
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-300 hover:border-blue-300'
+                  }`}
+                >
+                  <div className="text-2xl mb-2">📊</div>
+                  <div className="font-semibold">구글 시트 URL</div>
+                  <div className="text-sm text-gray-600">URL 입력만으로 자동 가져오기</div>
+                </button>
+                <button
+                  onClick={() => setUploadMethod('csv')}
+                  className={`flex-1 p-4 rounded-lg border-2 transition-all ${
+                    uploadMethod === 'csv'
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-300 hover:border-blue-300'
+                  }`}
+                >
+                  <div className="text-2xl mb-2">📄</div>
+                  <div className="font-semibold">CSV 파일 업로드</div>
+                  <div className="text-sm text-gray-600">파일 직접 선택</div>
+                </button>
+              </div>
+
+              {/* 구글 시트 URL 입력 */}
+              {uploadMethod === 'googleSheet' && (
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    구글 시트 URL
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={googleSheetUrl}
+                      onChange={(e) => setGoogleSheetUrl(e.target.value)}
+                      placeholder="https://docs.google.com/spreadsheets/d/..."
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={async () => {
+                        if (!googleSheetUrl) {
+                          alert('구글 시트 URL을 입력하세요.');
+                          return;
+                        }
+                        setUploadStatus('구글 시트에서 데이터 가져오는 중...');
+                        setIsUploading(true);
+                        try {
+                          const questions = await fetchQuestionsFromGoogleSheet(googleSheetUrl);
+                          setUploadPreview(questions);
+                          setUploadStatus(`✅ ${questions.length}개 문제를 가져왔습니다.`);
+                        } catch (err) {
+                          setUploadStatus(`❌ 오류: ${err}`);
+                          setUploadPreview([]);
+                        } finally {
+                          setIsUploading(false);
+                        }
+                      }}
+                      disabled={isUploading}
+                      className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {isUploading ? '가져오는 중...' : '가져오기'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    ⚠️ 구글 시트가 "링크가 있는 모든 사용자"로 공유되어 있어야 합니다.
+                  </p>
+                </div>
+              )}
+
+              {/* CSV 파일 업로드 */}
+              {uploadMethod === 'csv' && (
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    CSV 파일 선택
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setCsvFile(file);
+                        }
+                      }}
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={async () => {
+                        if (!csvFile) {
+                          alert('CSV 파일을 선택하세요.');
+                          return;
+                        }
+                        setUploadStatus('CSV 파일 파싱 중...');
+                        setIsUploading(true);
+                        try {
+                          const text = await csvFile.text();
+                          const questions = parseCSVToQuestions(text);
+                          setUploadPreview(questions);
+                          setUploadStatus(`✅ ${questions.length}개 문제를 파싱했습니다.`);
+                        } catch (err) {
+                          setUploadStatus(`❌ 오류: ${err}`);
+                          setUploadPreview([]);
+                        } finally {
+                          setIsUploading(false);
+                        }
+                      }}
+                      disabled={isUploading || !csvFile}
+                      className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {isUploading ? '파싱 중...' : '파싱하기'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 상태 메시지 */}
+              {uploadStatus && (
+                <div className={`p-4 rounded-lg mb-6 ${
+                  uploadStatus.includes('✅') ? 'bg-green-50 text-green-800' :
+                  uploadStatus.includes('❌') ? 'bg-red-50 text-red-800' :
+                  'bg-blue-50 text-blue-800'
+                }`}>
+                  {uploadStatus}
+                </div>
+              )}
+
+              {/* 미리보기 */}
+              {uploadPreview.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold mb-3">미리보기 (처음 5개)</h3>
+                  <div className="bg-gray-50 rounded-lg p-4 max-h-96 overflow-y-auto">
+                    {uploadPreview.slice(0, 5).map((q, idx) => (
+                      <div key={idx} className="mb-4 p-3 bg-white rounded border">
+                        <div className="text-sm text-gray-500 mb-1">문제 {idx + 1}</div>
+                        <div className="font-semibold mb-2">{q.question}</div>
+                        <div className="text-sm text-gray-600">
+                          카테고리: {q.category} | 정답: {q.answer}번
+                        </div>
+                      </div>
+                    ))}
+                    {uploadPreview.length > 5 && (
+                      <div className="text-center text-gray-500 mt-2">
+                        ... 외 {uploadPreview.length - 5}개 문제
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 카테고리별 통계 */}
+                  <div className="mt-4 grid grid-cols-3 gap-4">
+                    <div className="text-center p-3 bg-green-50 rounded-lg">
+                      <div className="text-xl font-bold text-green-600">
+                        {uploadPreview.filter(q => q.category === '전기이론').length}
+                      </div>
+                      <div className="text-sm text-gray-600">전기이론</div>
+                    </div>
+                    <div className="text-center p-3 bg-yellow-50 rounded-lg">
+                      <div className="text-xl font-bold text-yellow-600">
+                        {uploadPreview.filter(q => q.category === '전기기기').length}
+                      </div>
+                      <div className="text-sm text-gray-600">전기기기</div>
+                    </div>
+                    <div className="text-center p-3 bg-purple-50 rounded-lg">
+                      <div className="text-xl font-bold text-purple-600">
+                        {uploadPreview.filter(q => q.category === '전기설비').length}
+                      </div>
+                      <div className="text-sm text-gray-600">전기설비</div>
+                    </div>
+                  </div>
+
+                  {/* DB에 저장 버튼 */}
+                  <div className="mt-6">
+                    <button
+                      onClick={async () => {
+                        if (!window.confirm(`${uploadPreview.length}개 문제를 Supabase DB에 저장하시겠습니까?`)) {
+                          return;
+                        }
+                        setUploadStatus('DB에 저장 중...');
+                        setIsUploading(true);
+                        try {
+                          const result = await insertQuestions(uploadPreview);
+                          setUploadStatus(
+                            `✅ 완료! 성공: ${result.success}개, 실패: ${result.failed}개`
+                          );
+                          if (result.errors.length > 0) {
+                            console.error('업로드 오류:', result.errors);
+                          }
+                          setUploadPreview([]);
+                        } catch (err) {
+                          setUploadStatus(`❌ 저장 실패: ${err}`);
+                        } finally {
+                          setIsUploading(false);
+                        }
+                      }}
+                      disabled={isUploading}
+                      className="w-full py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {isUploading ? '저장 중...' : `📥 ${uploadPreview.length}개 문제를 DB에 저장`}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
