@@ -41,6 +41,7 @@ import {
   type MigrationProgress,
   type SupabaseUsageStats,
 } from '../services/supabaseMigration';
+import { fetchAllQuestions } from '../services/supabaseService';
 
 export default function Admin() {
   // 인증
@@ -155,8 +156,25 @@ export default function Admin() {
     }
   };
 
-  const loadQuestions = () => {
-    const allQuestions = getQuestions();
+  const loadQuestions = async () => {
+    // 먼저 localStorage에서 시도
+    let allQuestions = getQuestions();
+
+    // localStorage에 데이터가 없으면 Supabase에서 가져오기
+    if (allQuestions.length === 0) {
+      console.log('📥 localStorage에 문제가 없습니다. Supabase에서 가져옵니다...');
+      try {
+        allQuestions = await fetchAllQuestions();
+        if (allQuestions.length > 0) {
+          // Supabase에서 가져온 데이터를 localStorage에 저장
+          saveQuestions(allQuestions);
+          console.log(`✅ ${allQuestions.length}개 문제를 Supabase에서 가져와 localStorage에 저장했습니다.`);
+        }
+      } catch (error) {
+        console.error('Supabase에서 문제 가져오기 실패:', error);
+      }
+    }
+
     // 최신 문제가 맨 위로 오도록 ID 내림차순 정렬
     const sortedQuestions = [...allQuestions].sort((a, b) => b.id - a.id);
     setQuestions(sortedQuestions);
