@@ -81,6 +81,7 @@ export default function Admin() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showMustIncludeOnly, setShowMustIncludeOnly] = useState<boolean>(false);
   const [showMustExcludeOnly, setShowMustExcludeOnly] = useState<boolean>(false);
+  const [weightFilter, setWeightFilter] = useState<string>('all'); // 가중치 필터 (all, 1-10)
   const [selectedQuestions, setSelectedQuestions] = useState<Set<number>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const questionsPerPage = 100;
@@ -340,6 +341,13 @@ export default function Admin() {
 
       // 반드시 불포함 문제만 보기 필터
       if (showMustExcludeOnly && !q.mustExclude) return false;
+
+      // 가중치 필터
+      if (weightFilter !== 'all') {
+        const targetWeight = parseInt(weightFilter);
+        const questionWeight = q.weight || 5;
+        if (questionWeight !== targetWeight) return false;
+      }
 
       // 검색어가 없으면 모든 문제 표시
       if (!searchQuery.trim()) return true;
@@ -668,6 +676,54 @@ export default function Admin() {
       newSelected.delete(id);
     }
     setSelectedQuestions(newSelected);
+  };
+
+  // 선택된 문제의 가중치 일괄 변경
+  const handleBulkWeightChange = async (newWeight: number) => {
+    if (selectedQuestions.size === 0) {
+      alert('가중치를 변경할 문제를 선택해주세요.');
+      return;
+    }
+
+    const confirmMessage = `선택한 ${selectedQuestions.size}개 문제의 가중치를 ${newWeight}로 변경하시겠습니까?\n\n가중치 ${newWeight} = ${newWeight === 1 ? '최고 빈도' : newWeight === 10 ? '최저 빈도' : '중간 빈도'}`;
+    if (!window.confirm(confirmMessage)) return;
+
+    try {
+      // 로컬 상태 업데이트
+      const updatedQuestions = questions.map(q => {
+        if (selectedQuestions.has(q.id)) {
+          return { ...q, weight: newWeight };
+        }
+        return q;
+      });
+
+      const selectedCount = selectedQuestions.size;
+
+      // Supabase에 업데이트
+      const updatePromises = Array.from(selectedQuestions).map(async id => {
+        const question = updatedQuestions.find(q => q.id === id);
+        if (question) {
+          return updateQuestionInSupabase(question);
+        }
+        return true;
+      });
+
+      const results = await Promise.all(updatePromises);
+      const failedCount = results.filter(r => !r).length;
+
+      if (failedCount > 0) {
+        alert(`⚠️ ${failedCount}개 문제 업데이트 실패. 나머지 ${selectedCount - failedCount}개는 성공.`);
+      } else {
+        alert(`✅ ${selectedCount}개 문제의 가중치가 ${newWeight}로 변경되었습니다.`);
+      }
+
+      saveQuestions(updatedQuestions);
+      loadQuestions();
+      setSelectedQuestions(new Set());
+    } catch (error) {
+      console.error('❌ 가중치 변경 실패:', error);
+      alert('❌ 가중치 변경에 실패했습니다.');
+    }
   };
 
   const handleSelectAll = (checked: boolean) => {
@@ -1632,6 +1688,51 @@ export default function Admin() {
                     />
                     <span className="text-sm font-semibold text-red-800">🚫 반드시 불포함 문제만</span>
                   </label>
+
+                  {/* 가중치 필터 */}
+                  <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 border-2 border-blue-400 rounded-lg">
+                    <span className="text-sm font-semibold text-blue-800">⚖️ 가중치:</span>
+                    <select
+                      value={weightFilter}
+                      onChange={e => {
+                        setWeightFilter(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      className="px-2 py-1 border border-blue-300 rounded bg-white text-sm focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="all">전체</option>
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(w => (
+                        <option key={w} value={w.toString()}>
+                          {w} - {w === 1 ? '최고 빈도' : w === 10 ? '최저 빈도' : `레벨 ${w}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* 가중치 일괄 변경 */}
+                  {selectedQuestions.size > 0 && (
+                    <div className="flex items-center gap-2 px-4 py-2 bg-orange-50 border-2 border-orange-400 rounded-lg">
+                      <span className="text-sm font-semibold text-orange-800">⚖️ 일괄 변경:</span>
+                      <select
+                        onChange={e => {
+                          if (e.target.value) {
+                            handleBulkWeightChange(parseInt(e.target.value));
+                            e.target.value = '';
+                          }
+                        }}
+                        className="px-2 py-1 border border-orange-300 rounded bg-white text-sm focus:ring-2 focus:ring-orange-500"
+                        defaultValue=""
+                      >
+                        <option value="" disabled>가중치 선택</option>
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(w => (
+                          <option key={w} value={w}>
+                            {w} - {w === 1 ? '최고 빈도' : w === 10 ? '최저 빈도' : `레벨 ${w}`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   <button
                     onClick={() => setViewMode(viewMode === 'card' ? 'table' : 'card')}
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
