@@ -17,13 +17,25 @@ const DEFAULT_CONFIG: ExamConfig = {
  */
 export function getExamConfig(): ExamConfig {
   try {
+    console.log('🔍 getExamConfig 호출됨');
     const data = localStorage.getItem(EXAM_CONFIG_KEY);
+    console.log('📦 localStorage 키:', EXAM_CONFIG_KEY);
+    console.log('📦 localStorage 원본 데이터:', data);
+    
     if (!data) {
+      console.log('⚠️ localStorage에 데이터 없음 - DEFAULT_CONFIG 반환');
+      console.log('📋 DEFAULT_CONFIG:', DEFAULT_CONFIG);
       return DEFAULT_CONFIG;
     }
-    return JSON.parse(data);
+    
+    const parsed = JSON.parse(data);
+    console.log('✅ 파싱된 config:', parsed);
+    console.log('✅ weightBasedEnabled:', parsed.weightBasedEnabled);
+    console.log('✅ selectedWeights:', parsed.selectedWeights);
+    return parsed;
   } catch (error) {
     console.error('❌ 출제 설정 불러오기 실패:', error);
+    console.log('📋 에러 발생 - DEFAULT_CONFIG 반환:', DEFAULT_CONFIG);
     return DEFAULT_CONFIG;
   }
 }
