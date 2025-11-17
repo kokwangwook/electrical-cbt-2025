@@ -21,7 +21,7 @@ import {
   fetchAllQuestions,
 } from '../services/supabaseService';
 import { getExamConfig } from '../services/examConfigService';
-import { selectBalancedQuestionsByWeight } from '../services/weightedRandomService';
+import { selectBalancedQuestionsByWeight, selectCategoryQuestionsByWeight } from '../services/weightedRandomService';
 
 interface HomeProps {
   onStartExam: (questions: Question[], mode: 'timedRandom' | 'untimedRandom' | 'category' | 'wrong' | 'review') => void;
@@ -220,14 +220,53 @@ export default function Home({ onStartExam, onGoToStatistics }: HomeProps) {
           return;
         }
       } else if (learningMode === 'category') {
-        console.log(`📚 카테고리 모드: ${selectedCategory} (서버에서 직접 가져오기)`);
-        examQuestions = await fetchRandomQuestions(selectedCategory, 20);
-        console.log(`✅ 서버에서 가져온 문제: ${examQuestions.length}개`);
+        console.log(`📚 카테고리 모드: ${selectedCategory}`);
 
-        if (examQuestions.length === 0) {
-          alert(`${selectedCategory} 카테고리에 문제가 없습니다.`);
-          setLoading(false);
-          return;
+        // 가중치 기반 출제 설정 확인
+        const examConfig = getExamConfig();
+        console.log('📊 카테고리 모드 - 가중치 설정:', examConfig);
+
+        if (examConfig.weightBasedEnabled) {
+          console.log(`🎯 가중치 기반 출제 활성화됨 - 선택된 가중치: ${examConfig.selectedWeights.join(', ')}`);
+
+          // 모든 문제를 가져와서 가중치 필터링 적용
+          const allQuestions = await fetchAllQuestions();
+          console.log(`📥 전체 문제 로드: ${allQuestions.length}개`);
+
+          if (allQuestions.length === 0) {
+            alert('❌ 서버에서 문제를 가져올 수 없습니다.');
+            setLoading(false);
+            return;
+          }
+
+          // 카테고리 + 가중치 기반 선택
+          examQuestions = selectCategoryQuestionsByWeight(
+            allQuestions,
+            selectedCategory,
+            20,
+            examConfig
+          );
+          console.log(`✅ 가중치 필터링 후 문제: ${examQuestions.length}개`);
+
+          if (examQuestions.length === 0) {
+            alert(
+              `❌ ${selectedCategory} 카테고리에서 선택된 가중치 [${examConfig.selectedWeights.join(', ')}]에 해당하는 문제가 없습니다.\n\n` +
+              '관리자 페이지에서 가중치 설정을 확인하거나, 문제에 가중치를 설정해주세요.'
+            );
+            setLoading(false);
+            return;
+          }
+        } else {
+          // 가중치 기반 출제 비활성화 - 기존 로직 사용
+          console.log('📚 가중치 기반 출제 비활성화 - 랜덤 선택');
+          examQuestions = await fetchRandomQuestions(selectedCategory, 20);
+          console.log(`✅ 서버에서 가져온 문제: ${examQuestions.length}개`);
+
+          if (examQuestions.length === 0) {
+            alert(`${selectedCategory} 카테고리에 문제가 없습니다.`);
+            setLoading(false);
+            return;
+          }
         }
 
         if (examQuestions.length < 20) {

@@ -75,6 +75,8 @@ export default function Admin() {
 
   // 출제 설정
   const [examConfig, setExamConfig] = useState<ExamConfig>(getExamConfig());
+  const [weightCounts, setWeightCounts] = useState<{ [weight: number]: number }>({});
+  const [categoryCounts, setCategoryCounts] = useState<{ [category: string]: { [weight: number]: number } }>({});
 
   // 문제 관리
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -226,6 +228,43 @@ export default function Admin() {
       loadFeedbacks();
     }
   }, [activeTab, feedbackSubTab, loadFeedbacks]);
+
+  // 가중치별 문제 개수 계산
+  useEffect(() => {
+    if (questions.length > 0) {
+      // 전체 가중치별 개수
+      const counts: { [weight: number]: number } = {};
+      for (let i = 1; i <= 10; i++) {
+        counts[i] = 0;
+      }
+
+      // 카테고리별 가중치 개수
+      const catCounts: { [category: string]: { [weight: number]: number } } = {
+        '전기이론': {},
+        '전기기기': {},
+        '전기설비': {}
+      };
+      for (const cat of Object.keys(catCounts)) {
+        for (let i = 1; i <= 10; i++) {
+          catCounts[cat][i] = 0;
+        }
+      }
+
+      questions.forEach(q => {
+        const w = q.weight || 5; // 기본값 5
+        counts[w] = (counts[w] || 0) + 1;
+
+        if (q.category && catCounts[q.category]) {
+          catCounts[q.category][w] = (catCounts[q.category][w] || 0) + 1;
+        }
+      });
+
+      setWeightCounts(counts);
+      setCategoryCounts(catCounts);
+      console.log('📊 가중치별 문제 개수:', counts);
+      console.log('📊 카테고리별 가중치 개수:', catCounts);
+    }
+  }, [questions]);
 
   const handleLogin = () => {
     if (password === ADMIN_PASSWORD) {
@@ -1214,27 +1253,87 @@ export default function Admin() {
   // 출제 설정 저장
   const handleSaveExamConfig = () => {
     try {
+      // 검증: 가중치 기반 출제가 활성화된 경우에만 검증
+      if (examConfig.weightBasedEnabled) {
+        // 선택된 가중치가 없으면 오류
+        if (examConfig.selectedWeights.length === 0) {
+          alert('❌ 저장 실패!\n\n최소 하나 이상의 가중치를 선택해야 합니다.');
+          return;
+        }
+
+        // 선택한 가중치에 해당하는 문제가 전혀 없는지 확인
+        const totalSelectedQuestions = examConfig.selectedWeights.reduce(
+          (sum, w) => sum + (weightCounts[w] || 0),
+          0
+        );
+
+        if (totalSelectedQuestions === 0) {
+          const selectedWeightsList = examConfig.selectedWeights.join(', ');
+          alert(
+            `❌ 저장 실패!\n\n선택한 가중치 [${selectedWeightsList}]에 해당하는 문제가 없습니다.\n\n` +
+            '문제에 가중치를 먼저 설정하거나, 문제가 있는 가중치를 선택해주세요.'
+          );
+          return;
+        }
+
+        // 카테고리별로 문제가 있는지 확인 (균등 배분을 위해 중요)
+        const missingCategories: string[] = [];
+        for (const category of ['전기이론', '전기기기', '전기설비']) {
+          const categoryTotal = examConfig.selectedWeights.reduce(
+            (sum, w) => sum + (categoryCounts[category]?.[w] || 0),
+            0
+          );
+          if (categoryTotal === 0) {
+            missingCategories.push(category);
+          }
+        }
+
+        if (missingCategories.length > 0) {
+          const selectedWeightsList = examConfig.selectedWeights.join(', ');
+          const confirmSave = window.confirm(
+            `⚠️ 경고: 일부 카테고리에 문제가 없습니다!\n\n` +
+            `선택한 가중치: [${selectedWeightsList}]\n\n` +
+            `문제 없는 카테고리:\n${missingCategories.map(c => `  • ${c}`).join('\n')}\n\n` +
+            `카테고리별 균등 배분이 불가능할 수 있습니다.\n\n` +
+            `그래도 저장하시겠습니까?`
+          );
+          if (!confirmSave) {
+            return;
+          }
+        }
+      }
+
       // 1. localStorage에 저장
       saveExamConfig(examConfig);
-      
+
       // 2. 저장 후 localStorage에서 다시 읽어와서 확인
       const savedConfig = getExamConfig();
       console.log('💾 localStorage에 저장된 설정:', savedConfig);
-      
+
       // 3. state도 업데이트 (화면 반영)
       setExamConfig(savedConfig);
-      
+
       // 저장된 설정 상세 정보
-      const weightInfo = savedConfig.weightBasedEnabled
-        ? `✅ 가중치 기반 출제: 활성화\n🎯 선택된 가중치: ${savedConfig.selectedWeights.join(', ')}`
-        : '❌ 가중치 기반 출제: 비활성화';
-      
+      let weightInfo = '';
+      if (savedConfig.weightBasedEnabled) {
+        const totalQuestions = savedConfig.selectedWeights.reduce(
+          (sum, w) => sum + (weightCounts[w] || 0),
+          0
+        );
+        weightInfo =
+          `✅ 가중치 기반 출제: 활성화\n` +
+          `🎯 선택된 가중치: ${savedConfig.selectedWeights.join(', ')}\n` +
+          `📊 총 출제 가능 문제: ${totalQuestions}개`;
+      } else {
+        weightInfo = '❌ 가중치 기반 출제: 비활성화';
+      }
+
       alert(
         '✅ 출제 설정이 저장되었습니다!\n\n' +
         '📌 저장된 설정:\n' +
         weightInfo
       );
-      
+
       // 콘솔에도 로그 출력
       console.log('✅ 화면에 반영된 설정:', savedConfig);
     } catch (error) {
@@ -2331,13 +2430,17 @@ export default function Admin() {
                 <div className="grid grid-cols-5 gap-3">
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(weight => {
                     const isSelected = examConfig.selectedWeights.includes(weight);
+                    const count = weightCounts[weight] || 0;
+                    const hasQuestions = count > 0;
                     return (
                       <button
                         key={weight}
                         onClick={() => toggleWeight(weight)}
                         className={`p-4 rounded-lg border-2 transition-all ${
                           isSelected
-                            ? 'border-blue-600 bg-blue-50'
+                            ? hasQuestions
+                              ? 'border-blue-600 bg-blue-50'
+                              : 'border-orange-500 bg-orange-50'
                             : 'border-gray-300 bg-white hover:bg-gray-50'
                         }`}
                       >
@@ -2350,6 +2453,9 @@ export default function Admin() {
                           />
                           <span className="font-bold text-gray-800">가중치 {weight}</span>
                         </div>
+                        <p className={`text-sm font-semibold ${hasQuestions ? 'text-blue-600' : 'text-red-500'}`}>
+                          {count}개 문제
+                        </p>
                         <p className="text-xs text-gray-600">
                           {weight === 1
                             ? '최고 빈도'
@@ -2365,6 +2471,40 @@ export default function Admin() {
                     );
                   })}
                 </div>
+
+                {/* 카테고리별 가중치 분포 표시 */}
+                {examConfig.weightBasedEnabled && examConfig.selectedWeights.length > 0 && (
+                  <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                    <h4 className="text-sm font-bold text-gray-700 mb-3">📊 선택된 가중치의 카테고리별 문제 분포</h4>
+                    <div className="grid grid-cols-3 gap-4">
+                      {['전기이론', '전기기기', '전기설비'].map(category => {
+                        const categoryTotal = examConfig.selectedWeights.reduce(
+                          (sum, w) => sum + (categoryCounts[category]?.[w] || 0),
+                          0
+                        );
+                        return (
+                          <div key={category} className={`p-3 rounded-lg ${categoryTotal > 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                            <p className="font-semibold text-gray-800">{category}</p>
+                            <p className={`text-lg font-bold ${categoryTotal > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {categoryTotal}개
+                            </p>
+                            {categoryTotal === 0 && (
+                              <p className="text-xs text-red-500 mt-1">⚠️ 문제 없음</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-3 p-2 bg-blue-50 rounded">
+                      <p className="text-sm font-semibold text-blue-800">
+                        총 선택 가능 문제: {examConfig.selectedWeights.reduce(
+                          (sum, w) => sum + (weightCounts[w] || 0),
+                          0
+                        )}개
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
             {/* 설명 및 공식 안내 */}
