@@ -237,28 +237,36 @@ export default function Admin() {
 
   const loadQuestions = async () => {
     try {
+      console.log('🔄 Admin: 문제 로드 시작...');
+      
       // Supabase에서 모든 문제 가져오기
       const allQuestions = await fetchAllQuestions();
+      console.log(`📊 Admin: Supabase에서 가져온 문제: ${allQuestions.length}개`);
       
       if (allQuestions && allQuestions.length > 0) {
         // 최신 문제가 맨 위로 오도록 ID 내림차순 정렬
         const sortedQuestions = [...allQuestions].sort((a, b) => b.id - a.id);
         setQuestions(sortedQuestions);
+        console.log(`✅ Admin: ${sortedQuestions.length}개 문제 state에 설정 완료`);
         
         // 로컬 스토리지에도 캐싱
         saveQuestions(allQuestions);
+        console.log(`💾 Admin: ${allQuestions.length}개 문제 로컬 스토리지에 캐싱 완료`);
       } else {
+        console.warn('⚠️ Admin: Supabase에서 문제를 가져오지 못했습니다. 로컬 스토리지에서 fallback...');
         // Supabase에서 가져오지 못한 경우 로컬 스토리지에서 fallback
         const localQuestions = getQuestions();
         const sortedQuestions = [...localQuestions].sort((a, b) => b.id - a.id);
         setQuestions(sortedQuestions);
+        console.log(`📂 Admin: 로컬 스토리지에서 ${sortedQuestions.length}개 문제 로드`);
       }
     } catch (error) {
-      console.error('문제 로드 오류:', error);
+      console.error('❌ Admin: 문제 로드 오류:', error);
       // 에러 발생 시 로컬 스토리지에서 fallback
       const localQuestions = getQuestions();
       const sortedQuestions = [...localQuestions].sort((a, b) => b.id - a.id);
       setQuestions(sortedQuestions);
+      console.log(`📂 Admin: 에러 발생, 로컬 스토리지에서 ${sortedQuestions.length}개 문제 로드`);
     }
   };
 
@@ -1206,11 +1214,19 @@ export default function Admin() {
   // 출제 설정 저장
   const handleSaveExamConfig = () => {
     try {
+      // 1. localStorage에 저장
       saveExamConfig(examConfig);
       
+      // 2. 저장 후 localStorage에서 다시 읽어와서 확인
+      const savedConfig = getExamConfig();
+      console.log('💾 localStorage에 저장된 설정:', savedConfig);
+      
+      // 3. state도 업데이트 (화면 반영)
+      setExamConfig(savedConfig);
+      
       // 저장된 설정 상세 정보
-      const weightInfo = examConfig.weightBasedEnabled 
-        ? `✅ 가중치 기반 출제: 활성화\n📋 모드: ${examConfig.mode === 'filter' ? '필터 모드' : '비율 모드'}\n🎯 선택된 가중치: ${examConfig.selectedWeights.join(', ')}`
+      const weightInfo = savedConfig.weightBasedEnabled 
+        ? `✅ 가중치 기반 출제: 활성화\n📋 모드: ${savedConfig.mode === 'filter' ? '필터 모드' : '비율 모드'}\n🎯 선택된 가중치: ${savedConfig.selectedWeights.join(', ')}`
         : '❌ 가중치 기반 출제: 비활성화';
       
       alert(
@@ -1220,7 +1236,7 @@ export default function Admin() {
       );
       
       // 콘솔에도 로그 출력
-      console.log('💾 저장된 출제 설정:', examConfig);
+      console.log('✅ 화면에 반영된 설정:', savedConfig);
     } catch (error) {
       console.error('출제 설정 저장 실패:', error);
       alert('❌ 출제 설정 저장에 실패했습니다.');
@@ -2314,10 +2330,10 @@ export default function Admin() {
                 <div>
                   <p className="font-semibold text-gray-800">가중치 기반 출제 사용</p>
                   <p className="text-sm text-gray-600 mt-1">
-                    활성화하면 문제 출제 시 가중치를 고려하여 랜덤 선택합니다.
+                    활성화하면 문제 출제 시 선택한 가중치만 고려하여 출제합니다.
                     <br />
                     <span className="text-purple-600 font-medium">
-                      가중치 1 = 최고 빈도 (가장 많이 출제), 가중치 10 = 최저 빈도 (가장 적게 출제)
+                      가중치가 낮을수록 자주 출제되고, 높을수록 적게 출제됩니다.
                     </span>
                   </p>
                 </div>
