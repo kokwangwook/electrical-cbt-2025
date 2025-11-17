@@ -21,7 +21,7 @@ body {
   /* 인쇄용 컨텐츠는 표시 */
   .printable {
     display: block !important;
-    font-size: 14px; /* 기본 16px에서 14px로 2pt 감소 */
+    font-size: 12px; /* 기본 14px에서 12px로 2pt 감소 */
     line-height: 1.3; /* 줄간격 축소 */
   }
 
@@ -53,7 +53,7 @@ body {
   /* 문제 제목 줄 간격 조정 */
   .printable h1 {
     margin-bottom: 1cm;
-    font-size: 18px; /* 제목도 축소 */
+    font-size: 16px; /* 제목도 축소 */
   }
 
   /* 문제 간격 축소 */
@@ -82,23 +82,23 @@ body {
 
   /* 텍스트 요소 폰트 크기 조정 */
   .printable .text-base {
-    font-size: 14px;
-  }
-
-  .printable .text-lg {
-    font-size: 16px;
-  }
-
-  .printable .text-2xl {
-    font-size: 18px;
-  }
-
-  .printable .text-sm {
     font-size: 12px;
   }
 
+  .printable .text-lg {
+    font-size: 14px;
+  }
+
+  .printable .text-2xl {
+    font-size: 16px;
+  }
+
+  .printable .text-sm {
+    font-size: 10px;
+  }
+
   .printable .text-xs {
-    font-size: 11px;
+    font-size: 9px;
   }
 }
 
