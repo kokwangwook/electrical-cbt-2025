@@ -80,46 +80,88 @@ export const fetchRandom60Questions = async (): Promise<Question[]> => {
 
 /**
  * 모든 문제 가져오기 (가중치 기반 출제용)
+ * 페이징을 사용하여 1000개 이상의 문제도 모두 가져옴
  */
 export const fetchAllQuestions = async (): Promise<Question[]> => {
   try {
-    // Supabase 기본 제한이 1000개이므로 10000개로 늘림
-    const { data, error } = await supabase
-      .from('questions')
-      .select('*')
-      .order('id')
-      .limit(10000);
+    const allData: Question[] = [];
+    let offset = 0;
+    const batchSize = 1000;
+    let hasMore = true;
 
-    if (error) {
-      console.error('모든 문제 조회 실패:', error);
-      return [];
+    console.log('📊 모든 문제 가져오기 시작 (페이징 사용)...');
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('questions')
+        .select('*')
+        .order('id')
+        .range(offset, offset + batchSize - 1);
+
+      if (error) {
+        console.error('문제 조회 실패:', error);
+        break;
+      }
+
+      if (!data || data.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      console.log(`📦 ${offset + 1}~${offset + data.length}번째 문제 로드됨`);
+
+      // 첫 번째 배치에서 weight 필드 구조 확인 (디버깅)
+      if (offset === 0 && data.length > 0) {
+        const sampleQ = data[0];
+        console.log('🔍 샘플 문제 데이터 (weight 필드 확인):', {
+          id: sampleQ.id,
+          weight: sampleQ.weight,
+          weight_type: typeof sampleQ.weight,
+          all_keys: Object.keys(sampleQ)
+        });
+      }
+
+      // Supabase 형식을 로컬 형식으로 변환
+      const converted = data.map(q => ({
+        id: q.id,
+        category: q.category,
+        standard: q.standard || undefined,
+        detailItem: q.detailItem || undefined,
+        question: q.question,
+        option1: q.option1,
+        option2: q.option2,
+        option3: q.option3,
+        option4: q.option4,
+        answer: q.answer,
+        explanation: q.explanation,
+        imageUrl: q.imageUrl || undefined,
+        hasImage: q.hasImage || false,
+        mustInclude: q.mustInclude || false,
+        mustExclude: q.mustExclude || false,
+        weight: q.weight !== undefined && q.weight !== null ? Number(q.weight) : 5,
+        source: q.source || undefined
+      }));
+
+      allData.push(...converted);
+
+      if (data.length < batchSize) {
+        hasMore = false;
+      } else {
+        offset += batchSize;
+      }
     }
 
-    if (!data || data.length === 0) {
-      console.warn('문제가 없습니다.');
-      return [];
-    }
+    console.log(`✅ 총 ${allData.length}개 문제 로드 완료`);
 
-    // Supabase 형식을 로컬 형식으로 변환
-    return data.map(q => ({
-      id: q.id,
-      category: q.category,
-      standard: q.standard || undefined,
-      detailItem: q.detailItem || undefined,
-      question: q.question,
-      option1: q.option1,
-      option2: q.option2,
-      option3: q.option3,
-      option4: q.option4,
-      answer: q.answer,
-      explanation: q.explanation,
-      imageUrl: q.imageUrl || undefined,
-      hasImage: q.hasImage || false,
-      mustInclude: q.mustInclude || false,
-      mustExclude: q.mustExclude || false,
-      weight: q.weight || 5,
-      source: q.source || undefined
-    }));
+    // 가중치 분포 로그
+    const weightDist: { [key: number]: number } = {};
+    allData.forEach(q => {
+      const w = q.weight || 5;
+      weightDist[w] = (weightDist[w] || 0) + 1;
+    });
+    console.log('📊 가중치 분포:', weightDist);
+
+    return allData;
   } catch (err) {
     console.error('모든 문제 조회 오류:', err);
     return [];

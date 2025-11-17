@@ -2505,6 +2505,33 @@ export default function Admin() {
                     </div>
                   </div>
                 )}
+
+                {/* 디버깅 정보 */}
+                <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <h4 className="text-sm font-bold text-yellow-800 mb-3">🔍 DB 데이터 디버깅 정보</h4>
+                  <div className="text-xs text-gray-700 space-y-2">
+                    <p><strong>총 로드된 문제:</strong> {questions.length}개</p>
+                    <p><strong>가중치별 분포:</strong></p>
+                    <div className="grid grid-cols-5 gap-2 mt-2">
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(w => (
+                        <div key={w} className="bg-white p-2 rounded text-center">
+                          <span className="font-semibold">W{w}:</span> {weightCounts[w] || 0}
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2"><strong>첫 3개 문제의 weight 값:</strong></p>
+                    <div className="bg-white p-2 rounded mt-1">
+                      {questions.slice(0, 3).map((q, i) => (
+                        <div key={i} className="text-xs">
+                          문제 {q.id}: weight = {q.weight !== undefined ? q.weight : 'undefined'} (타입: {typeof q.weight})
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-yellow-700 mt-2">
+                      💡 브라우저 콘솔(F12)에서 더 자세한 로그를 확인하세요.
+                    </p>
+                  </div>
+                </div>
               </div>
 
             {/* 설명 및 공식 안내 */}
