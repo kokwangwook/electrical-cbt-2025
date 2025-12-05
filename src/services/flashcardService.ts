@@ -1,6 +1,6 @@
 // Supabase Service - 서버에서 직접 문제 가져오기
 import { supabase } from './supabaseClient';
-import type { Question, LoginHistory, Feedback, Flashcard } from '../types';
+import type { Flashcard } from '../types';
 
 // ... (기존 코드 유지) ...
 
