@@ -22,7 +22,6 @@ import {
   getStatistics,
   getGlobalUserAnswers,
   updateGlobalUserAnswer,
-  removeGlobalUserAnswers,
 } from '../services/storage';
 import { saveUserDataToSupabase } from '../services/supabaseService';
 import type { ExamSession, ExamResult, WrongAnswer } from '../types';
