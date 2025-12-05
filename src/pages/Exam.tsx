@@ -15,25 +15,12 @@ import {
   getWrongAnswers,
   getCurrentUser,
   getMemberById,
-  getExamResults,
-  saveExamResults,
-  getGlobalLearningProgress,
-  updateGlobalLearningProgress,
-  getStatistics,
-  getGlobalUserAnswers,
-  updateGlobalUserAnswer,
-} from '../services/storage';
-import { saveUserDataToSupabase } from '../services/supabaseService';
-import type { ExamSession, ExamResult, WrongAnswer } from '../types';
-import LatexRenderer from '../components/LatexRenderer';
-import FeedbackBoard from '../components/FeedbackBoard';
-
-interface ExamProps {
-  questions: Question[];
-  onComplete: (answers: (number | null)[], mode?: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review') => void;
-  onExit: () => void;
-  mode?: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review';
-}
+  interface ExamProps {
+    questions: Question[];
+    onComplete: (answers: (number | null)[], mode?: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review') => void;
+    onExit: () => void;
+    mode?: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review';
+  }
 
 export default function Exam({ questions, onComplete, onExit, mode: propMode }: ExamProps) {
   // 랜덤 모드일 때 카테고리별로 정렬 (1-20: 전기이론, 21-40: 전기기기, 41-60: 전기설비)
@@ -403,18 +390,6 @@ export default function Exam({ questions, onComplete, onExit, mode: propMode }: 
     const questionId = displayQuestions[currentIndex].id;
     setAnswers({
       ...answers,
-      [questionId]: answer,
-    });
-
-    // 실전 모의고사가 아닌 경우, 전역 저장소에도 저장 (다음에 같은 문제가 나와도 답 표시)
-    if (examMode !== 'timedRandom') {
-      updateGlobalUserAnswer(questionId, answer);
-    }
-  };
-
-  const handleNext = () => {
-    if (currentIndex < displayQuestions.length - 1) {
-      setCurrentIndex(currentIndex + 1);
     }
   };
 
