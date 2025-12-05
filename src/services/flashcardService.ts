@@ -1,11 +1,6 @@
 // Supabase Service - 서버에서 직접 문제 가져오기
 import { supabase } from './supabaseClient';
 import type { Flashcard } from '../types';
-
-// ... (기존 코드 유지) ...
-
-// ==========================================
-// 플래시카드 관련 함수
 // ==========================================
 
 // TSV 파일에서 플래시카드 로드
