@@ -26,11 +26,12 @@ import { selectBalancedQuestionsByWeight, selectCategoryQuestionsByWeight } from
 interface HomeProps {
   onStartExam: (questions: Question[], mode: 'timedRandom' | 'untimedRandom' | 'category' | 'wrong' | 'review') => void;
   onGoToStatistics: () => void;
+  onGoToFinalStudy: () => void;
 }
 
-export default function Home({ onStartExam, onGoToStatistics }: HomeProps) {
+export default function Home({ onStartExam, onGoToStatistics, onGoToFinalStudy }: HomeProps) {
   const [activeTab, setActiveTab] = useState<'learning' | 'exam'>('learning');
-  const [learningMode, setLearningMode] = useState<'untimedRandom' | 'category' | 'wrong' | 'review'>('untimedRandom');
+  const [learningMode, setLearningMode] = useState<'untimedRandom' | 'category' | 'wrong' | 'review' | 'finalStudy'>('untimedRandom');
   const [selectedCategory, setSelectedCategory] = useState<string>('전기이론');
   const [loading, setLoading] = useState<boolean>(false);
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
@@ -52,6 +53,8 @@ export default function Home({ onStartExam, onGoToStatistics }: HomeProps) {
     전기설비: 0,
     total: 0,
   });
+
+  const [wrongAnswerCount, setWrongAnswerCount] = useState<number>(0);
 
   // 문제 수 로드 함수 (서버에서 직접 COUNT)
   const loadQuestionCounts = async () => {
@@ -85,10 +88,12 @@ export default function Home({ onStartExam, onGoToStatistics }: HomeProps) {
   useEffect(() => {
     initializeData();
     loadQuestionCounts();
+    setWrongAnswerCount(getWrongAnswers().length);
 
     // 페이지가 다시 포커스될 때 자동 업데이트
     const handleFocus = () => {
       loadQuestionCounts();
+      setWrongAnswerCount(getWrongAnswers().length);
       console.log('🔄 페이지 포커스 - 문제 현황 자동 업데이트');
     };
 
@@ -145,6 +150,12 @@ export default function Home({ onStartExam, onGoToStatistics }: HomeProps) {
       }
 
       let examQuestions: Question[] = [];
+
+      if (learningMode === 'finalStudy') {
+        onGoToFinalStudy();
+        setLoading(false);
+        return;
+      }
 
       if (learningMode === 'untimedRandom') {
         // 가중치 기반 출제 설정 확인
@@ -456,6 +467,22 @@ export default function Home({ onStartExam, onGoToStatistics }: HomeProps) {
         return sessionQ;
       });
 
+      // 기존 세션의 answers를 유지하면서 세션을 다시 저장
+      // onStartExam을 호출하면 answers가 빈 객체로 덮어씌워지므로 직접 세션 저장
+      const currentUserId = getCurrentUser();
+      const restoredSession: ExamSession = {
+        questions: questionsWithImages,
+        answers: previousSession.answers || {}, // 기존 답변 유지!
+        learningProgress: previousSession.learningProgress || {},
+        startTime: previousSession.startTime || Date.now(),
+        mode: previousSession.mode,
+        category: previousSession.category,
+        userId: currentUserId || undefined,
+      };
+      saveCurrentExamSession(restoredSession);
+
+      console.log(`📋 이전 세션 복원: ${Object.keys(previousSession.answers || {}).length}개 답변 유지`);
+
       onStartExam(questionsWithImages, previousSession.mode as 'untimedRandom' | 'category' | 'wrong' | 'review');
     }
   };
@@ -545,13 +572,13 @@ export default function Home({ onStartExam, onGoToStatistics }: HomeProps) {
                       onGoToStatistics();
                       setMenuOpen(false);
                     }}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-2"
+                    className="w-full text-left px-4 py-[7.5px] text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-2"
                   >
                     📊 학습 통계
                   </button>
                   <button
                     onClick={handleClearAllData}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-2"
+                    className="w-full text-left px-4 py-[7.5px] text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-2"
                   >
                     🗑️ 데이터 초기화
                   </button>
@@ -561,7 +588,7 @@ export default function Home({ onStartExam, onGoToStatistics }: HomeProps) {
                       handleLogout();
                       setMenuOpen(false);
                     }}
-                    className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                    className="w-full text-left px-4 py-[7.5px] text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
                   >
                     🚪 로그아웃
                   </button>
@@ -574,49 +601,55 @@ export default function Home({ onStartExam, onGoToStatistics }: HomeProps) {
 
       {/* 메인 콘텐츠 */}
       <main className="max-w-4xl mx-auto p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-6">
+        <div className="bg-white rounded-2xl shadow-xl p-4">
           {/* 문제 현황 */}
-          <div className="mb-6">
-            <h2 className="text-lg font-semibold text-gray-800 mb-3">📊 문제 현황</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="text-center p-3 bg-blue-50 rounded-lg">
-                <div className="text-2xl font-bold text-blue-600">{questionCounts.total ?? 0}</div>
-                <div className="text-xs text-gray-600 mt-1">전체 문제</div>
+          <div className="mb-5">
+            <h2 className="text-lg font-bold text-gray-800 mb-3 px-1">📊 학습 현황</h2>
+            <div className="flex flex-col gap-2">
+              {/* 전체 문제 - 크게 */}
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-4 flex items-center justify-between shadow-sm border border-blue-100">
+                <div className="flex flex-col">
+                  <span className="text-blue-900 font-bold text-lg">총 문제 수</span>
+                  <span className="text-blue-600/70 text-sm font-medium">전체 데이터베이스</span>
+                </div>
+                <div className="text-3xl font-black text-blue-600 tracking-tight">{questionCounts.total ?? 0}</div>
               </div>
-              <div className="text-center p-3 bg-green-50 rounded-lg">
-                <div className="text-2xl font-bold text-green-600">{questionCounts.전기이론 ?? 0}</div>
-                <div className="text-xs text-gray-600 mt-1">전기이론</div>
-              </div>
-              <div className="text-center p-3 bg-yellow-50 rounded-lg">
-                <div className="text-2xl font-bold text-orange-600">{questionCounts.전기기기 ?? 0}</div>
-                <div className="text-xs text-gray-600 mt-1">전기기기</div>
-              </div>
-              <div className="text-center p-3 bg-purple-50 rounded-lg">
-                <div className="text-2xl font-bold text-purple-600">{questionCounts.전기설비 ?? 0}</div>
-                <div className="text-xs text-gray-600 mt-1">전기설비</div>
+
+              {/* 카테고리별 - 작게 3개 */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-green-50 rounded-xl p-2 text-center border border-green-100">
+                  <div className="text-green-600 font-bold text-xl mb-1">{questionCounts.전기이론 ?? 0}</div>
+                  <div className="text-xs text-green-800 font-semibold">전기이론</div>
+                </div>
+                <div className="bg-orange-50 rounded-xl p-2 text-center border border-orange-100">
+                  <div className="text-orange-600 font-bold text-xl mb-1">{questionCounts.전기기기 ?? 0}</div>
+                  <div className="text-xs text-orange-800 font-semibold">전기기기</div>
+                </div>
+                <div className="bg-purple-50 rounded-xl p-2 text-center border border-purple-100">
+                  <div className="text-purple-600 font-bold text-xl mb-1">{questionCounts.전기설비 ?? 0}</div>
+                  <div className="text-xs text-purple-800 font-semibold">전기설비</div>
+                </div>
               </div>
             </div>
           </div>
 
           {/* 탭 전환 */}
-          <div className="flex mb-6 bg-gray-100 rounded-lg p-1">
+          <div className="flex mb-4 bg-gray-100 rounded-lg p-1">
             <button
               onClick={() => setActiveTab('learning')}
-              className={`flex-1 py-2 px-4 rounded-md text-sm font-semibold transition-colors ${
-                activeTab === 'learning'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-gray-600 hover:text-gray-800'
-              }`}
+              className={`flex-1 py-[7.5px] px-4 rounded-md text-sm font-semibold transition-colors ${activeTab === 'learning'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-gray-600 hover:text-gray-800'
+                }`}
             >
               📚 학습·복습
             </button>
             <button
               onClick={() => setActiveTab('exam')}
-              className={`flex-1 py-2 px-4 rounded-md text-sm font-semibold transition-colors ${
-                activeTab === 'exam'
-                  ? 'bg-red-600 text-white shadow-sm'
-                  : 'text-gray-600 hover:text-gray-800'
-              }`}
+              className={`flex-1 py-[7.5px] px-4 rounded-md text-sm font-semibold transition-colors ${activeTab === 'exam'
+                ? 'bg-red-600 text-white shadow-sm'
+                : 'text-gray-600 hover:text-gray-800'
+                }`}
             >
               🎯 시험
             </button>
@@ -624,90 +657,115 @@ export default function Home({ onStartExam, onGoToStatistics }: HomeProps) {
 
           {/* 학습·복습 탭 */}
           {activeTab === 'learning' && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {/* 모드 선택 (라디오 버튼) */}
-              <div className="space-y-3">
+              <div className="space-y-2">
+                {/* 파이널 학습 (카드) */}
+                <label className={`flex items-center gap-3 p-3.5 rounded-2xl border-2 cursor-pointer transition-all shadow-sm hover:shadow-md ${learningMode === 'finalStudy' ? 'border-teal-500 bg-teal-50/50 ring-1 ring-teal-500' : 'border-gray-100 bg-white hover:border-teal-200'
+                  }`}>
+                  <input
+                    type="radio"
+                    name="learningMode"
+                    value="finalStudy"
+                    checked={learningMode === 'finalStudy'}
+                    onChange={(e) => setLearningMode(e.target.value as 'finalStudy')}
+                    className="w-5 h-5 text-teal-600 shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-gray-900 text-lg truncate">🎴 파이널 학습</div>
+                    <div className="text-sm text-gray-600 mt-0.5 font-medium truncate">핵심 요약 카드 암기</div>
+                  </div>
+                </label>
+
                 {/* 랜덤 60문제 */}
-                <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
-                  learningMode === 'untimedRandom' ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-green-300'
-                }`}>
+                <label className={`relative flex items-center gap-3 p-3.5 rounded-2xl border-2 cursor-pointer transition-all shadow-sm hover:shadow-md ${learningMode === 'untimedRandom' ? 'border-blue-500 bg-blue-50/50 ring-1 ring-blue-500' : 'border-gray-100 bg-white hover:border-blue-200'
+                  }`}>
+                  <div className="absolute -top-3 left-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[11px] font-bold px-3 py-1 rounded-full shadow-md animate-pulse">
+                    ⭐ 추천
+                  </div>
                   <input
                     type="radio"
                     name="learningMode"
                     value="untimedRandom"
                     checked={learningMode === 'untimedRandom'}
                     onChange={(e) => setLearningMode(e.target.value as 'untimedRandom')}
-                    className="mt-1"
+                    className="w-5 h-5 text-blue-600 shrink-0"
                   />
-                  <div>
-                    <div className="font-semibold text-gray-800">🎲 랜덤 60문제</div>
-                    <div className="text-sm text-gray-600">시간 제한 없이 자유롭게 학습</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-gray-900 text-lg truncate">🎲 랜덤 60문제</div>
+                    <div className="text-sm text-gray-600 mt-0.5 font-medium truncate">실전과 동일 구성 (60문제)</div>
                   </div>
                 </label>
 
                 {/* 카테고리별 집중 학습 */}
-                <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
-                  learningMode === 'category' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-purple-300'
-                }`}>
-                  <input
-                    type="radio"
-                    name="learningMode"
-                    value="category"
-                    checked={learningMode === 'category'}
-                    onChange={(e) => setLearningMode(e.target.value as 'category')}
-                    className="mt-1"
-                  />
-                  <div className="flex-1">
-                    <div className="font-semibold text-gray-800">📚 카테고리별 집중 학습</div>
-                    <div className="text-sm text-gray-600 mb-2">선택한 카테고리에서 20문제 출제</div>
-                    {learningMode === 'category' && (
+                <label className={`flex flex-col gap-2 p-3.5 rounded-2xl border-2 cursor-pointer transition-all shadow-sm hover:shadow-md ${learningMode === 'category' ? 'border-purple-500 bg-purple-50/50 ring-1 ring-purple-500' : 'border-gray-100 bg-white hover:border-purple-200'
+                  }`}>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="radio"
+                      name="learningMode"
+                      value="category"
+                      checked={learningMode === 'category'}
+                      onChange={(e) => setLearningMode(e.target.value as 'category')}
+                      className="w-5 h-5 text-purple-600 shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-gray-900 text-lg truncate">📚 카테고리별</div>
+                      <div className="text-sm text-gray-600 mt-0.5 font-medium truncate">취약 과목 집중 (20문제)</div>
+                    </div>
+                  </div>
+
+                  {learningMode === 'category' && (
+                    <div className="pl-9 mt-1 animate-in fade-in slide-in-from-top-2 duration-200">
                       <select
                         value={selectedCategory}
                         onChange={(e) => setSelectedCategory(e.target.value)}
-                        className="w-full p-2 border border-purple-300 rounded bg-white text-sm"
+                        className="w-full p-3 border border-purple-200 rounded-xl bg-white text-gray-800 font-medium focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <option value="전기이론">전기이론</option>
                         <option value="전기기기">전기기기</option>
                         <option value="전기설비">전기설비</option>
                       </select>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </label>
 
                 {/* 오답노트 복습 */}
-                <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
-                  learningMode === 'wrong' ? 'border-pink-500 bg-pink-50' : 'border-gray-200 hover:border-pink-300'
-                }`}>
+                <label className={`flex items-center gap-3 p-3.5 rounded-2xl border-2 cursor-pointer transition-all shadow-sm hover:shadow-md ${learningMode === 'wrong' ? 'border-pink-500 bg-pink-50/50 ring-1 ring-pink-500' : 'border-gray-100 bg-white hover:border-pink-200'
+                  }`}>
                   <input
                     type="radio"
                     name="learningMode"
                     value="wrong"
                     checked={learningMode === 'wrong'}
                     onChange={(e) => setLearningMode(e.target.value as 'wrong')}
-                    className="mt-1"
+                    className="w-5 h-5 text-pink-600 shrink-0"
                   />
-                  <div>
-                    <div className="font-semibold text-gray-800">📝 오답노트 복습</div>
-                    <div className="text-sm text-gray-600">틀렸던 문제만 재출제 (최대 20문제)</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-gray-900 text-lg truncate">📝 오답노트</div>
+                    <div className="text-sm text-gray-600 mt-0.5 font-medium truncate">
+                      {wrongAnswerCount > 0
+                        ? <span className="text-pink-600 font-bold">{wrongAnswerCount}문제 다시 풀기</span>
+                        : '틀린 문제가 없습니다'}
+                    </div>
                   </div>
                 </label>
 
                 {/* 진도 기반 복습 */}
-                <label className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
-                  learningMode === 'review' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-300'
-                }`}>
+                <label className={`flex items-center gap-3 p-3.5 rounded-2xl border-2 cursor-pointer transition-all shadow-sm hover:shadow-md ${learningMode === 'review' ? 'border-indigo-500 bg-indigo-50/50 ring-1 ring-indigo-500' : 'border-gray-100 bg-white hover:border-indigo-200'
+                  }`}>
                   <input
                     type="radio"
                     name="learningMode"
                     value="review"
                     checked={learningMode === 'review'}
                     onChange={(e) => setLearningMode(e.target.value as 'review')}
-                    className="mt-1"
+                    className="w-5 h-5 text-indigo-600 shrink-0"
                   />
-                  <div>
-                    <div className="font-semibold text-gray-800">📊 진도 기반 복습</div>
-                    <div className="text-sm text-gray-600">학습 진도 1-5 문제만 복습 (완벽 이해 제외)</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-gray-900 text-lg truncate">📊 복습하기</div>
+                    <div className="text-sm text-gray-600 mt-0.5 font-medium truncate">진도 맞춤 문제 풀이</div>
                   </div>
                 </label>
               </div>
@@ -723,7 +781,7 @@ export default function Home({ onStartExam, onGoToStatistics }: HomeProps) {
                   </div>
                   <button
                     onClick={handleResumePreviousExam}
-                    className="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors text-sm"
+                    className="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-[7.5px] px-4 rounded-lg transition-colors text-sm"
                   >
                     📖 이전 세션 이어하기
                   </button>
@@ -734,7 +792,7 @@ export default function Home({ onStartExam, onGoToStatistics }: HomeProps) {
               <button
                 onClick={handleStartLearning}
                 disabled={loading}
-                className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-bold py-4 px-6 rounded-lg transition-colors text-lg shadow-md"
+                className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-bold py-[15.5px] px-6 rounded-lg transition-colors text-lg shadow-md"
               >
                 {loading ? '불러오는 중...' : '▶️ 학습 시작'}
               </button>
@@ -757,7 +815,7 @@ export default function Home({ onStartExam, onGoToStatistics }: HomeProps) {
               <button
                 onClick={handleStartExam}
                 disabled={loading}
-                className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white font-bold py-4 px-6 rounded-lg transition-colors text-lg shadow-md"
+                className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white font-bold py-[15.5px] px-6 rounded-lg transition-colors text-lg shadow-md"
               >
                 {loading ? '불러오는 중...' : '🚀 시험 시작'}
               </button>

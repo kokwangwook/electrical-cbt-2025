@@ -1,0 +1,1291 @@
+﻿import { useState, useEffect, useMemo, useRef } from 'react';
+import type { Question } from '../types';
+import ScientificCalculator from '../components/ScientificCalculator';
+import { getStandardTitle } from '../data/examStandards';
+import { isMobileDevice } from '../utils/deviceDetection';
+import {
+  getCurrentExamSession,
+  saveCurrentExamSession,
+  clearCurrentExamSession,
+  addWrongAnswer,
+  updateCorrectAnswer,
+  removeWrongAnswer,
+  addExamResult,
+  updateStatistics,
+  getWrongAnswers,
+  getCurrentUser,
+  getMemberById,
+  getExamResults,
+  saveExamResults,
+  getGlobalLearningProgress,
+  updateGlobalLearningProgress,
+  getStatistics,
+} from '../services/storage';
+import { saveUserDataToSupabase } from '../services/supabaseService';
+import type { ExamSession, ExamResult, WrongAnswer } from '../types';
+import LatexRenderer from '../components/LatexRenderer';
+import FeedbackBoard from '../components/FeedbackBoard';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
+
+interface ExamProps {
+  questions: Question[];
+  onComplete: (answers: (number | null)[], mode?: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review') => void;
+  onExit: () => void;
+  mode?: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review';
+}
+
+export default function Exam({ questions, onComplete, onExit, mode: propMode }: ExamProps) {
+  // ?쒕뜡 紐⑤뱶????移댄뀒怨좊━蹂꾨줈 ?뺣젹 (1-20: ?꾧린?대줎, 21-40: ?꾧린湲곌린, 41-60: ?꾧린?ㅻ퉬)
+  const sortedQuestions = useMemo(() => {
+    // 移댄뀒怨좊━蹂꾨줈 洹몃９??
+    const categoryGroups: Record<string, Question[]> = {
+      '?꾧린?대줎': [],
+      '?꾧린湲곌린': [],
+      '?꾧린?ㅻ퉬': [],
+      '湲고?': [],
+    };
+
+    questions.forEach(q => {
+      const category = q.category || '湲고?';
+      if (!categoryGroups[category]) {
+        categoryGroups[category] = [];
+      }
+      categoryGroups[category].push(q);
+    });
+
+    // 移댄뀒怨좊━ ?쒖꽌?濡??뺣젹
+    const categoryOrder = ['?꾧린?대줎', '?꾧린湲곌린', '?꾧린?ㅻ퉬', '湲고?'];
+    const sorted: Question[] = [];
+
+    categoryOrder.forEach(category => {
+      if (categoryGroups[category] && categoryGroups[category].length > 0) {
+        sorted.push(...categoryGroups[category]);
+      }
+    });
+
+    return sorted.length > 0 ? sorted : questions;
+  }, [questions]);
+
+  // 珥덇린 ?몄뀡 蹂듭썝 (?ㅼ쟾 紐⑥쓽怨좎궗 紐⑤뱶???몄뀡 蹂듭썝?섏? ?딆쓬)
+  const savedSession = getCurrentExamSession();
+
+  // 紐⑤뱶 寃곗젙: prop > savedSession > URL ?뚮씪誘명꽣 > 湲곕낯媛?
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlMode = urlParams.get('mode') === 'exam' ? 'timedRandom' : null;
+  const determinedMode: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review' =
+    (propMode || savedSession?.mode || urlMode || 'untimedRandom') as 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review';
+
+  // ?ㅼ쟾 紐⑥쓽怨좎궗 紐⑤뱶?몄? ?뺤씤
+  // ?ㅼ쟾 紐⑥쓽怨좎궗????긽 ?덈줈 ?쒖옉?댁빞 ?섎?濡??몄뀡 蹂듭썝?섏? ?딆쓬
+  const isTimedRandomMode = determinedMode === 'timedRandom' || savedSession?.mode === 'timedRandom';
+
+  // ?꾩뿭 臾몄젣 ?댄빐??遺덈윭?ㅺ린 (?덈줈???몄뀡?댁뼱???댁쟾??泥댄겕???댄빐???쒖떆)
+  const globalLearningProgress = getGlobalLearningProgress();
+
+  // ?뺣젹??臾몄젣 ?ъ슜 (?몄뀡 蹂듭썝 ??"?꾨꼍 ?댄빐" 臾몄젣 ?쒖쇅)
+  const displayQuestions = useMemo(() => {
+    // ?몄뀡 蹂듭썝 ?щ? ?뺤씤
+    const shouldRestoreSession = !isTimedRandomMode &&
+      savedSession &&
+      savedSession.questions &&
+      savedSession.questions.length > 0 &&
+      sortedQuestions.length > 0 &&
+      savedSession.questions.length === sortedQuestions.length;
+
+    // ?몄뀡 蹂듭썝 ??"?꾨꼍 ?댄빐" (value: 6)濡??쒖떆??臾몄젣 ?쒖쇅
+    if (shouldRestoreSession) {
+      return sortedQuestions.filter(q => {
+        const progress = globalLearningProgress[q.id];
+        // "?꾨꼍 ?댄빐"媛 ?꾨땲嫄곕굹 ?댄빐?꾧? ?녿뒗 臾몄젣留??ы븿
+        return progress !== 6;
+      });
+    }
+
+    return sortedQuestions;
+  }, [sortedQuestions, savedSession, isTimedRandomMode, globalLearningProgress]);
+
+  // ?ㅼ쟾 紐⑥쓽怨좎궗 紐⑤뱶媛 ?꾨땺 ?뚮쭔 ?몄뀡 蹂듭썝 ?쒕룄
+  // ?먮낯 臾몄젣 ?명듃? ?몄뀡 臾몄젣 ?명듃瑜?鍮꾧탳 (?꾪꽣留???
+  const shouldRestoreSession = !isTimedRandomMode && // ?ㅼ쟾 紐⑥쓽怨좎궗 紐⑤뱶媛 ?꾨땺 ?뚮쭔
+    savedSession &&
+    savedSession.questions &&
+    savedSession.questions.length > 0 &&
+    sortedQuestions.length > 0 &&
+    savedSession.questions.length === sortedQuestions.length;
+
+  let initialAnswers: { [key: number]: number } = {};
+  let initialLearningProgress: { [key: number]: number } = {};
+  let initialStartTime = Date.now();
+  let initialRemainingTime = 60 * 60; // 60遺?= 3600珥?
+  let initialMode: 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review' = determinedMode;
+  const duration = 60 * 60; // 60遺?
+
+  if (shouldRestoreSession) {
+    // 臾몄젣 ID媛 ?쇱튂?섎뒗吏 ?뺤씤 (?먮낯 臾몄젣 ?명듃 湲곗? - "?꾨꼍 ?댄빐" 臾몄젣 ?쒖쇅 ??
+    const savedQuestionIds = savedSession.questions.map(q => q.id).sort();
+    const originalQuestionIds = sortedQuestions.map(q => q.id).sort();
+
+    // ?먮낯 臾몄젣 ?명듃? ?몄뀡 臾몄젣 ?명듃媛 ?쇱튂?섎뒗吏 ?뺤씤
+    if (savedQuestionIds.length === originalQuestionIds.length &&
+      savedQuestionIds.every((id, index) => id === originalQuestionIds[index])) {
+      initialAnswers = savedSession.answers || {};
+      // ?몄뀡???댄빐?꾩? ?꾩뿭 ?댄빐?꾨? 蹂묓빀 (?꾩뿭 ?댄빐?꾧? ?곗꽑)
+      initialLearningProgress = { ...globalLearningProgress, ...(savedSession.learningProgress || {}) };
+      initialMode = (savedSession.mode as any) || 'untimedRandom';
+
+      // ?吏 紐삵븳 臾몄젣 ??怨꾩궛
+      const answeredCount = Object.keys(initialAnswers).length;
+      const unansweredCount = displayQuestions.length - answeredCount;
+
+      // ?듬? 湲곕줉???놁쑝硫??덈줈???쒖옉 ?쒓컙?쇰줈 ?ㅼ젙?섍퀬 60遺?遺??
+      if (answeredCount === 0) {
+        initialStartTime = Date.now(); // ?덈줈???쒖옉 ?쒓컙
+        initialRemainingTime = 60 * 60; // 60遺?
+        console.log(`???몄뀡 蹂듭썝: ?듬? 湲곕줉 ?놁쓬. ?덈줈???쒗뿕?쇰줈 ?쒖옉 (60遺?`);
+      } else {
+        // ?듬? 湲곕줉???덉쑝硫??댁쟾 ?몄뀡???쒖옉 ?쒓컙 ?좎?
+        initialStartTime = savedSession.startTime;
+        // ?吏 紐삵븳 臾몄젣??1遺?60珥????쒓컙 遺??
+        const additionalTime = unansweredCount * 60;
+        initialRemainingTime = additionalTime;
+
+        if (unansweredCount > 0) {
+          console.log(`???몄뀡 蹂듭썝: ?吏 紐삵븳 臾몄젣 ${unansweredCount}媛쒖뿉 ???${unansweredCount}遺??쒓컙??遺?щ릺?덉뒿?덈떎.`);
+        } else {
+          console.log(`???몄뀡 蹂듭썝: 紐⑤뱺 臾몄젣瑜???덉뒿?덈떎.`);
+        }
+      }
+    }
+  } else if (isTimedRandomMode && savedSession) {
+    // ?ㅼ쟾 紐⑥쓽怨좎궗 紐⑤뱶??寃쎌슦 ?몄뀡 ??젣 (?덈줈 ?쒖옉)
+    console.log('?슟 ?ㅼ쟾 紐⑥쓽怨좎궗 紐⑤뱶: ?댁쟾 ?몄뀡 臾댁떆?섍퀬 ?덈줈 ?쒖옉');
+    clearCurrentExamSession();
+  }
+
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [answers, setAnswers] = useState<{ [key: number]: number }>(initialAnswers);
+  // 珥덇린?? ?몄뀡 ?댄빐?꾩? ?꾩뿭 ?댄빐?꾨? 蹂묓빀 (?꾩뿭 ?댄빐?꾧? ?곗꽑, ?몄뀡 ?댄빐?꾨줈 ??뼱?곌린)
+  const [learningProgress, setLearningProgress] = useState<{ [key: number]: number }>(
+    Object.keys(initialLearningProgress).length > 0
+      ? { ...globalLearningProgress, ...initialLearningProgress }
+      : globalLearningProgress
+  );
+  const [startTime, setStartTime] = useState(initialStartTime);
+  const [remainingTime, setRemainingTime] = useState(initialRemainingTime);
+  const [examMode] = useState<'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review'>(initialMode as 'timedRandom' | 'untimedRandom' | 'random' | 'category' | 'wrong' | 'review');
+  const [fontSize, setFontSize] = useState<100 | 150 | 200>(100);
+  const [isMobile, setIsMobile] = useState(isMobileDevice());
+  const [isTimeReset, setIsTimeReset] = useState(false); // ?쒓컙 珥덇린???щ?
+  const [showScoreModal, setShowScoreModal] = useState(false);
+
+  // ?붾㈃ ?ш린 蹂寃?媛먯? (紐⑤컮??PC ?꾪솚 ??
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(isMobileDevice());
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  const [showCalculator, setShowCalculator] = useState(false); // 怨꾩궛湲??쒖떆 ?щ?
+  const [showFeedbackBoard, setShowFeedbackBoard] = useState(false); // ?쒕낫 寃뚯떆???쒖떆 ?щ?
+  const [showHint, setShowHint] = useState(false); // ?뚰듃 紐⑤떖 ?쒖떆 ?щ?
+  const [showPrintOptions, setShowPrintOptions] = useState(false); // ?몄뇙 ?듭뀡 紐⑤떖 ?쒖떆 ?щ?
+  const [printOption, setPrintOption] = useState<'questionsOnly' | 'withAnswers' | 'withExplanations'>('questionsOnly'); // ?몄뇙 ?듭뀡
+  const [scoreResult, setScoreResult] = useState<{
+    total: number;
+    correct: number;
+    wrong: number;
+    unanswered: number;
+    score: number;
+    percentage: number;
+    encouragement?: string; // 寃⑸젮 硫붿떆吏
+    answeredCount?: number; // ?묒떆??臾몄젣 ??(?ㅻ떟?명듃 紐⑤뱶??
+  } | null>(null);
+
+  // ?몄뀡 蹂듭썝???대? ?꾨즺?섏뿀?붿? 異붿쟻?섎뒗 ref
+  const sessionRestoredRef = useRef(false);
+  const lastQuestionIdsRef = useRef<string>('');
+
+  // ?몄뀡 蹂듭썝 (questions prop??蹂寃쎈맆 ?뚮쭏???뺤씤)
+  // ?ㅼ쟾 紐⑥쓽怨좎궗 紐⑤뱶???몄뀡 蹂듭썝?섏? ?딆쓬
+  useEffect(() => {
+    if (displayQuestions.length === 0) return;
+
+    // ?ㅼ쟾 紐⑥쓽怨좎궗 紐⑤뱶??寃쎌슦 ?몄뀡 蹂듭썝?섏? ?딆쓬
+    if (examMode === 'timedRandom') {
+      // ?ㅼ쟾 紐⑥쓽怨좎궗 紐⑤뱶?먯꽌???몄뀡 蹂듭썝?섏? ?딆쓬
+      sessionRestoredRef.current = true;
+      lastQuestionIdsRef.current = displayQuestions.map(q => q.id).sort().join(',');
+      return;
+    }
+
+    // ?꾩옱 臾몄젣 ID?ㅼ쓣 臾몄옄?대줈 蹂?섑븯??鍮꾧탳
+    const currentQuestionIds = displayQuestions.map(q => q.id).sort().join(',');
+
+    // 臾몄젣 ID媛 蹂寃쎈릺吏 ?딆븯怨??대? 蹂듭썝?덈떎硫??ㅽ궢
+    if (sessionRestoredRef.current && lastQuestionIdsRef.current === currentQuestionIds) {
+      return;
+    }
+
+    // ?몄뀡 蹂듭썝 ?쒖옉 ?꾩뿉 利됱떆 ?쒖떆?섏뿬 以묐났 ?ㅽ뻾 諛⑹?
+    sessionRestoredRef.current = true;
+    lastQuestionIdsRef.current = currentQuestionIds;
+
+    const savedSession = getCurrentExamSession();
+
+    // ?ㅼ쟾 紐⑥쓽怨좎궗 紐⑤뱶???몄뀡? 臾댁떆
+    if (savedSession?.mode === 'timedRandom') {
+      console.log('?슟 ?ㅼ쟾 紐⑥쓽怨좎궗 紐⑤뱶: ?몄뀡 蹂듭썝?섏? ?딆쓬');
+      return;
+    }
+
+    if (savedSession && savedSession.questions && savedSession.questions.length > 0) {
+      // 臾몄젣 ID媛 ?쇱튂?섎뒗吏 ?뺤씤
+      const savedQuestionIds = savedSession.questions.map(q => q.id).sort();
+      const currentQuestionIdsArray = displayQuestions.map(q => q.id).sort();
+
+      // 臾몄젣 ID媛 紐⑤몢 ?쇱튂?섎㈃ ?몄뀡 蹂듭썝
+      if (
+        savedQuestionIds.length === currentQuestionIdsArray.length &&
+        savedQuestionIds.every((id, index) => id === currentQuestionIdsArray[index])
+      ) {
+        const restoredAnswers = savedSession.answers || {};
+
+        // ?吏 紐삵븳 臾몄젣 ??怨꾩궛
+        const answeredCount = Object.keys(restoredAnswers).length;
+        const unansweredCount = displayQuestions.length - answeredCount;
+
+        // ?듬? 湲곕줉???놁쑝硫??덈줈???쒖옉 ?쒓컙?쇰줈 ?ㅼ젙?섍퀬 60遺?遺??
+        if (answeredCount === 0) {
+          // ?곹깭 ?낅뜲?댄듃瑜???踰덉뿉 泥섎━?섏뿬 臾댄븳 猷⑦봽 諛⑹?
+          setAnswers(restoredAnswers);
+          setStartTime(Date.now());
+          setRemainingTime(60 * 60);
+          console.log(`???몄뀡 蹂듭썝: ?듬? 湲곕줉 ?놁쓬. ?덈줈???쒗뿕?쇰줈 ?쒖옉 (60遺?`);
+        } else {
+          // ?듬? 湲곕줉???덉쑝硫??댁쟾 ?몄뀡???쒖옉 ?쒓컙 ?좎?
+          // ?곹깭 ?낅뜲?댄듃瑜???踰덉뿉 泥섎━?섏뿬 臾댄븳 猷⑦봽 諛⑹?
+          setAnswers(restoredAnswers);
+          setStartTime(savedSession.startTime);
+          const additionalTime = unansweredCount * 60;
+          setRemainingTime(additionalTime);
+
+          if (unansweredCount > 0) {
+            console.log(`???몄뀡 蹂듭썝: ?吏 紐삵븳 臾몄젣 ${unansweredCount}媛쒖뿉 ???${unansweredCount}遺??쒓컙??遺?щ릺?덉뒿?덈떎.`);
+          } else {
+            console.log(`???몄뀡 蹂듭썝: 紐⑤뱺 臾몄젣瑜???덉뒿?덈떎.`);
+          }
+        }
+      }
+    }
+  }, [displayQuestions, examMode]);
+
+  // ?숈뒿 吏꾨룄 蹂寃??몃뱾??
+  const handleLearningProgressChange = (questionId: number, progress: number) => {
+    setLearningProgress(prev => ({
+      ...prev,
+      [questionId]: progress,
+    }));
+    // ?꾩뿭 ??μ냼?먮룄 ???(?ㅼ쓬??媛숈? 臾몄젣媛 ?섏????댄빐???쒖떆)
+    updateGlobalLearningProgress(questionId, progress);
+  };
+
+  // ?몄뀡 ?먮룞 ???
+  useEffect(() => {
+    // ?ㅼ쟾 紐⑥쓽怨좎궗 紐⑤뱶???몄뀡 ??ν븯吏 ?딆쓬 (?쒕쾲 ?앸굹硫??ㅼ떆 怨꾩냽?????놁쓬)
+    if (examMode === 'timedRandom') {
+      return;
+    }
+
+    const currentUserId = getCurrentUser();
+    const session: ExamSession = {
+      questions: displayQuestions,
+      answers,
+      learningProgress,
+      startTime,
+      mode: examMode as any,
+      category: undefined,
+      userId: currentUserId || undefined, // ?꾩옱 ?ъ슜??ID ???
+    };
+    saveCurrentExamSession(session);
+  }, [answers, learningProgress, displayQuestions, startTime, examMode]);
+
+  // ??대㉧ (untimedRandom 紐⑤뱶???쒓컙 ?쒗븳 ?놁쓬)
+  useEffect(() => {
+    if (displayQuestions.length === 0) return;
+    // untimedRandom 紐⑤뱶????대㉧ ?묐룞?섏? ?딆쓬
+    if (examMode === 'untimedRandom') {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      // ?쒓컙 珥덇린?붾? ??寃쎌슦: ?먮옒 ?쒗뿕 ?쒓컙(60遺? 湲곗??쇰줈 怨꾩궛
+      if (isTimeReset) {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const remaining = Math.max(0, duration - elapsed);
+        setRemainingTime(remaining);
+
+        // ?쒓컙??紐⑤몢 ?뚯쭊?섎㈃ ?먮룞 ?쒖텧
+        if (remaining === 0) {
+          clearInterval(timer);
+          alert('?쒗뿕 ?쒓컙??醫낅즺?섏뿀?듬땲?? ?먮룞?쇰줈 ?쒖텧?⑸땲??');
+          handleSubmit(true);
+        }
+      } else {
+        // ?쒓컙 珥덇린?붾? ?섏? ?딆? 寃쎌슦: ?吏 紐삵븳 臾몄젣??1遺꾩뵫 ?쒓컙 遺??
+        const answeredCount = Object.keys(answers).length;
+        const unansweredCount = displayQuestions.length - answeredCount;
+
+        // ?듬? 湲곕줉???놁쑝硫?60遺꾨????쒖옉
+        if (answeredCount === 0) {
+          const elapsed = Math.floor((Date.now() - startTime) / 1000);
+          const remaining = Math.max(0, duration - elapsed);
+          setRemainingTime(remaining);
+
+          // ?쒓컙??紐⑤몢 ?뚯쭊?섎㈃ ?먮룞 ?쒖텧
+          if (remaining === 0) {
+            clearInterval(timer);
+            alert('?쒗뿕 ?쒓컙??醫낅즺?섏뿀?듬땲?? ?먮룞?쇰줈 ?쒖텧?⑸땲??');
+            handleSubmit(true);
+          }
+        } else {
+          // ?듬? 湲곕줉???덉쑝硫??吏 紐삵븳 臾몄젣??1遺꾩뵫 ?쒓컙 遺??
+          // ?ㅼ젣 寃쎄낵 ?쒓컙??怨꾩궛?섏뿬 ?쒓컙???먮Ⅴ?꾨줉 ??
+          const elapsed = Math.floor((Date.now() - startTime) / 1000);
+
+          // ?吏 紐삵븳 臾몄젣??1遺?60珥????쒓컙 遺??
+          const totalTime = unansweredCount * 60;
+          const remaining = Math.max(0, totalTime - elapsed);
+          setRemainingTime(remaining);
+
+          // ?쒓컙??紐⑤몢 ?뚯쭊?섎㈃ ?먮룞 ?쒖텧
+          if (remaining === 0) {
+            clearInterval(timer);
+            alert('?쒗뿕 ?쒓컙??醫낅즺?섏뿀?듬땲?? ?먮룞?쇰줈 ?쒖텧?⑸땲??');
+            handleSubmit(true);
+          }
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [displayQuestions.length, answers, startTime, duration, isTimeReset]);
+
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleAnswerSelect = (answer: number) => {
+    setAnswers({
+      ...answers,
+      [displayQuestions[currentIndex].id]: answer,
+    });
+  };
+
+  const handleNext = () => {
+    if (currentIndex < displayQuestions.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    }
+  };
+
+  const handlePrevious = () => {
+    if (currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1);
+    }
+  };
+
+  const handleNavigate = (index: number) => {
+    setCurrentIndex(index);
+  };
+
+  const handleSubmit = (autoSubmit = false) => {
+    if (!autoSubmit) {
+      const unanswered = questions.filter(q => !answers[q.id]).length;
+
+      // ?ㅼ쟾 紐⑥쓽怨좎궗 紐⑤뱶????
+      if (examMode === 'timedRandom') {
+        // 誘몃떟蹂 臾몄젣媛 ?덉쓣 ?뚮쭔 ?뺤씤
+        if (unanswered > 0) {
+          const confirmed = window.confirm(
+            `?꾩쭅 ${unanswered}臾몄젣媛 誘몃떟蹂 ?곹깭?낅땲??\n?쒖텧?섏떆寃좎뒿?덇퉴?`
+          );
+          if (!confirmed) return;
+        }
+        // 紐⑤뱺 臾몄젣瑜??듬??덉쑝硫??뺤씤 ?놁씠 諛붾줈 ?쒖텧
+      } else {
+        // ?쇰컲 紐⑤뱶 (?ㅼ쟾 紐⑥쓽怨좎궗媛 ?꾨땺 ??
+        if (unanswered > 0) {
+          const confirmed = window.confirm(
+            `?꾩쭅 ${unanswered}臾몄젣媛 誘몃떟蹂 ?곹깭?낅땲??\n?쒖텧?섏떆寃좎뒿?덇퉴?`
+          );
+          if (!confirmed) return;
+        } else {
+          const confirmed = window.confirm('?쒗뿕???쒖텧?섏떆寃좎뒿?덇퉴?');
+          if (!confirmed) return;
+        }
+      }
+    }
+
+    // 寃곌낵 怨꾩궛
+    let correctCount = 0;
+    const wrongQuestions: Question[] = [];
+
+    console.log('?뱤 ?쒗뿕 ?쒖텧 ?쒖옉 - ?ㅻ떟 ???濡쒖쭅 ?ㅽ뻾');
+    console.log('?뱥 珥?臾몄젣 ??', questions.length);
+    console.log('?뱥 ?듬???臾몄젣 ??', Object.keys(answers).length);
+    console.log('?뱥 ?듬? ?곗씠??', answers);
+    console.log('?뱥 ?쒗뿕 紐⑤뱶:', examMode);
+
+    // ?ㅻ떟?명듃 紐⑤뱶???뚮뒗 ?ㅻⅨ 濡쒖쭅 ?ъ슜
+    const isWrongMode = examMode === 'wrong';
+
+    displayQuestions.forEach(q => {
+      const userAnswer = answers[q.id];
+      console.log(`臾몄젣 ${q.id} (${q.category}): ?ъ슜???듬?=${userAnswer}, ?뺣떟=${q.answer}`);
+
+      if (userAnswer === q.answer) {
+        correctCount++;
+        // ?ㅻ떟?명듃 紐⑤뱶???뚮뒗 ?뺣떟??留욎텣 臾몄젣瑜?利됱떆 ?쒓굅
+        if (isWrongMode) {
+          removeWrongAnswer(q.id);
+          console.log(`???뺣떟: 臾몄젣 ${q.id} (${q.category}) - ?ㅻ떟?명듃?먯꽌 利됱떆 ?쒓굅`);
+        } else {
+          // ?쇰컲 紐⑤뱶???뚮뒗 correctStreak++, 3???곗냽 ???ㅻ떟?명듃?먯꽌 ?쒓굅
+          updateCorrectAnswer(q.id);
+          console.log(`???뺣떟: 臾몄젣 ${q.id} (${q.category})`);
+        }
+      } else {
+        wrongQuestions.push(q);
+        // ?ㅻ떟 泥섎━: wrongCount++, correctStreak=0
+        // ?ъ슜?먭? ?듬????좏깮?덇퀬, ?由?寃쎌슦?먮쭔 ?ㅻ떟 ???(梨꾩젏 湲곗?)
+        if (userAnswer !== undefined && userAnswer !== null && userAnswer !== q.answer) {
+          const wrongAnswer: WrongAnswer = {
+            questionId: q.id,
+            question: q,
+            userAnswer,
+            timestamp: Date.now(),
+            wrongCount: 1,
+            correctStreak: 0,
+          };
+          console.log(`???ㅻ떟 ????쒕룄: 臾몄젣 ${q.id} (${q.category}) - ?ъ슜???듬?: ${userAnswer}, ?뺣떟: ${q.answer}`);
+          addWrongAnswer(wrongAnswer);
+          console.log(`???ㅻ떟 ????꾨즺: 臾몄젣 ${q.id} (${q.category})`);
+        } else {
+          console.log(`?좑툘 ?ㅻ떟 ????덈맖: 臾몄젣 ${q.id} (${q.category}) - ?ъ슜???듬?: ${userAnswer} (?듬? ?놁쓬)`);
+        }
+      }
+    });
+
+    console.log('?뱤 ?ㅻ떟 ????꾨즺 - ??λ맂 ?ㅻ떟 ??', getWrongAnswers().length);
+
+    // ExamResult ???(allQuestions???⑸웾 臾몄젣濡??쒓굅 - 臾몄젣 ID留????
+    const result: ExamResult = {
+      totalQuestions: displayQuestions.length,
+      correctAnswers: correctCount,
+      wrongQuestions,
+      // allQuestions ?쒓굅 - localStorage ?⑸웾 珥덇낵 諛⑹?
+      // ?듦퀎 怨꾩궛?먮뒗 totalQuestions? correctAnswers留??꾩슂
+      timestamp: Date.now(),
+      mode: examMode as any,
+      category: undefined,
+    };
+
+    // ExamResult ????쒕룄 (?먮윭媛 諛쒖깮?대룄 梨꾩젏 ?붾㈃?쇰줈 ?대룞)
+    try {
+      addExamResult(result);
+      updateStatistics(result);
+    } catch (error) {
+      console.error('???쒗뿕 寃곌낵 ????ㅽ뙣:', error);
+      // localStorage ?⑸웾 珥덇낵 ???ㅻ옒??寃곌낵 ??젣 ???ъ떆??
+      if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+        try {
+          const results = getExamResults();
+          // ?ㅻ옒??寃곌낵 50% ??젣 (媛???ㅻ옒??寃껊???
+          const sortedResults = results.sort((a, b) => a.timestamp - b.timestamp);
+          const keepCount = Math.floor(sortedResults.length / 2);
+          const keptResults = sortedResults.slice(-keepCount);
+          saveExamResults(keptResults);
+          console.log(`?뿊截??ㅻ옒???쒗뿕 寃곌낵 ${sortedResults.length - keepCount}媛???젣`);
+
+          // ?ъ떆??
+          addExamResult(result);
+          updateStatistics(result);
+        } catch (retryError) {
+          console.error('???쒗뿕 寃곌낵 ????ъ떆???ㅽ뙣:', retryError);
+          // 洹몃옒??梨꾩젏 ?붾㈃?쇰줈 ?대룞
+        }
+      }
+    }
+
+    // ?쒕쾭???ъ슜???곗씠???숆린??(PC/紐⑤컮???곗씠???쇱튂)
+    const userId = getCurrentUser();
+    if (userId) {
+      saveUserDataToSupabase(userId, {
+        wrongAnswers: getWrongAnswers(),
+        examResults: getExamResults(),
+        statistics: getStatistics()
+      }).catch(err => {
+        console.warn('?좑툘 ?쒕쾭 ?곗씠???숆린???ㅽ뙣:', err);
+        // ?ㅼ쟾紐⑥쓽怨좎궗 CBT ?덉씠?꾩썐
+        if (examMode === 'timedRandom') {
+          // ?덉갹?몄? ?뺤씤
+          const params = new URLSearchParams(window.location.search);
+          const isNewWindow = params.get('mode') === 'exam' && window.opener !== null;
+
+          return (
+            <div className={`flex justify-center bg-slate-100 ${isNewWindow ? 'p-[1px] h-screen' : 'h-screen'}`}>
+              <div className={`flex flex-col bg-white w-full max-w-[1000px] ${isNewWindow ? 'h-full' : 'h-screen'} shadow-xl`}>
+                <div className="flex items-center gap-2 text-xs sm:text-sm">
+                  <Badge variant="secondary" className="bg-blue-600 text-white border-blue-500">?꾩껜: {displayQuestions.length}</Badge>
+                  <Badge variant="outline" className="text-yellow-300 border-yellow-300/50">?덊뫜: {displayQuestions.length - answeredCount}</Badge>
+                </div>
+              </div>
+            </div>
+              </div >
+
+    {/* 2. 툴바 */ }
+    < div className = "bg-white border-b border-slate-200 px-4 md:px-6 py-2 flex-shrink-0 flex items-center justify-between shadow-sm z-10" >
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs sm:text-sm font-semibold text-slate-600">글자 크기:</span>
+                    <div className="flex bg-slate-100 rounded-lg p-1 gap-1">
+                      {[100, 150, 200].map((size) => (
+                        <button
+                          key={size}
+                          onClick={() => setFontSize(size as 100 | 150 | 200)}
+                          className={`px-3 py-1 text-xs sm:text-sm rounded-md transition-all ${fontSize === size
+                            ? 'bg-white text-blue-600 shadow-sm font-bold'
+                            : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                        >
+                          {size}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {examMode !== 'timedRandom' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSave}
+                      className="text-green-600 border-green-200 hover:bg-green-50"
+                    >
+                      💾 저장
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleExit}
+                    className="text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                  >
+                    🚪 나가기
+                  </Button>
+                </div>
+              </div >
+
+    {/* 4. 푸터 */ }
+    < div className = "bg-white border-t border-slate-200 px-4 md:px-6 py-3 flex-shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20" >
+      <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 sm:gap-0">
+        <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowCalculator(true)}
+            className="gap-2"
+          >
+            <span>🧮</span> 계산기
+          </Button>
+
+          <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-md">
+            <span className="text-xs text-slate-500">페이지</span>
+            <span className="font-bold text-slate-800">{Math.floor(currentIndex / 4) + 1}</span>
+            <span className="text-slate-400">/</span>
+            <span className="text-slate-600">{Math.ceil(displayQuestions.length / 4)}</span>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const prevPage = Math.floor(currentIndex / 4) - 1;
+                if (prevPage >= 0) {
+                  setCurrentIndex(prevPage * 4);
+                }
+              }}
+              disabled={Math.floor(currentIndex / 4) === 0}
+            >
+              ◀ 이전
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const nextPage = Math.floor(currentIndex / 4) + 1;
+                const nextPageStart = nextPage * 4;
+                if (nextPageStart < displayQuestions.length) {
+                  setCurrentIndex(nextPageStart);
+                }
+              }}
+              disabled={Math.floor(currentIndex / 4) >= Math.ceil(displayQuestions.length / 4) - 1}
+            >
+              다음 ▶
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Button
+            variant="secondary"
+            onClick={handleGoToUnanswered}
+            className="bg-orange-100 text-orange-700 hover:bg-orange-200 border-orange-200"
+          >
+            안 푼 문제
+          </Button>
+          <Button
+            onClick={() => handleSubmit(false)}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 shadow-md hover:shadow-lg transition-all"
+          >
+            답안 제출
+          </Button>
+        </div>
+      </div>
+              </div >
+
+    {/* 계산기 모달 */ }
+  {
+    showCalculator && (
+      <ScientificCalculator onClose={() => setShowCalculator(false)} />
+    )
+  }
+
+  {/* 제보 게시판 모달 */ }
+  {
+    showFeedbackBoard && (
+      <FeedbackBoard
+        onClose={() => setShowFeedbackBoard(false)}
+        currentQuestion={currentQuestion}
+        currentQuestionIndex={currentIndex}
+      />
+    )
+  }
+
+  {/* 인쇄 옵션 선택 모달 */ }
+  {
+    showPrintOptions && (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 non-printable animate-in fade-in duration-200">
+        <Card className="max-w-md w-full shadow-2xl">
+          <CardHeader>
+            <CardTitle className="text-xl flex items-center gap-2">
+              <span>🖨️</span> 인쇄 옵션 선택
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-slate-500 mb-4">인쇄할 내용을 선택하세요</p>
+
+            <RadioGroup value={printOption} onValueChange={(v) => setPrintOption(v as any)} className="gap-3">
+              <div className={`flex items-start space-x-3 space-y-0 rounded-md border p-4 transition-all cursor-pointer ${printOption === 'questionsOnly' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`} onClick={() => setPrintOption('questionsOnly')}>
+                <RadioGroupItem value="questionsOnly" id="r1" className="mt-1" />
+                <div className="grid gap-1.5 leading-none">
+                  <Label htmlFor="r1" className="font-bold cursor-pointer">📝 문제만 인쇄</Label>
+                  <p className="text-sm text-slate-500">문제와 선택지만 인쇄 (정답 표시 없음)</p>
+                </div>
+              </div>
+
+              <div className={`flex items-start space-x-3 space-y-0 rounded-md border p-4 transition-all cursor-pointer ${printOption === 'withAnswers' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`} onClick={() => setPrintOption('withAnswers')}>
+                <RadioGroupItem value="withAnswers" id="r2" className="mt-1" />
+                <div className="grid gap-1.5 leading-none">
+                  <Label htmlFor="r2" className="font-bold cursor-pointer">✅ 정답 표시 인쇄</Label>
+                  <p className="text-sm text-slate-500">문제 + 정답 표시 (파란색 ✓ 표시)</p>
+                </div>
+              </div>
+
+              <div className={`flex items-start space-x-3 space-y-0 rounded-md border p-4 transition-all cursor-pointer ${printOption === 'withExplanations' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`} onClick={() => setPrintOption('withExplanations')}>
+                <RadioGroupItem value="withExplanations" id="r3" className="mt-1" />
+                <div className="grid gap-1.5 leading-none">
+                  <Label htmlFor="r3" className="font-bold cursor-pointer">📚 정답 + 해설 인쇄</Label>
+                  <p className="text-sm text-slate-500">문제 + 정답 + 해설 전체</p>
+                </div>
+              </div>
+            </RadioGroup>
+          </CardContent>
+          <CardFooter className="flex gap-3 justify-end bg-slate-50 p-4 rounded-b-xl">
+            <Button variant="outline" onClick={() => setShowPrintOptions(false)}>취소</Button>
+            <Button onClick={handlePrintExecute}>인쇄하기</Button>
+          </CardFooter>
+        </Card>
+      </div>
+    )
+  }
+
+  {/* 채점 결과 모달 */ }
+  {
+    showScoreModal && scoreResult && (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-300">
+        <Card className="max-w-md w-full mx-4 shadow-2xl border-t-4 border-t-blue-600">
+          <CardHeader className="text-center pb-2">
+            <CardTitle className="text-2xl font-bold">📊 채점 결과</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6 pt-4">
+            <div className="text-center">
+              <div className="text-6xl font-black text-blue-600 mb-2 tracking-tighter">{scoreResult.score}<span className="text-3xl text-blue-400 font-bold ml-1">점</span></div>
+              <Badge variant={scoreResult.score >= 60 ? "default" : "destructive"} className="text-lg px-4 py-1">
+                {scoreResult.score >= 60 ? "🎉 합격입니다!" : "💪 조금 더 노력해보세요"}
+              </Badge>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div className="bg-green-50 p-3 rounded-lg border border-green-100">
+                <div className="text-sm text-green-600 font-medium mb-1">정답</div>
+                <div className="text-2xl font-bold text-green-700">{scoreResult.correct}</div>
+              </div>
+              <div className="bg-red-50 p-3 rounded-lg border border-red-100">
+                <div className="text-sm text-red-600 font-medium mb-1">오답</div>
+                <div className="text-2xl font-bold text-red-700">{scoreResult.wrong}</div>
+              </div>
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                <div className="text-sm text-slate-600 font-medium mb-1">미답변</div>
+                <div className="text-2xl font-bold text-slate-700">{scoreResult.unanswered}</div>
+              </div>
+            </div>
+          </CardContent>
+          <CardFooter className="pt-2 pb-6">
+            <Button
+              onClick={() => setShowScoreModal(false)}
+              className="w-full text-lg font-bold h-12 shadow-md hover:shadow-lg transition-all"
+            >
+              결과 확인하기
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
+    )
+  }
+            </div >
+            </div >
+          );
+}
+
+// ?쇰컲 紐⑤뱶: 湲곗〈 ?덉씠?꾩썐
+return (
+  <>
+    {/* ?몄뇙??肄섑뀗痢?*/}
+    <div className="printable hidden">
+      <h1 className="text-2xl font-bold text-center mb-8">?꾧린湲곕뒫??CBT 臾몄젣</h1>
+      <div className="space-y-6">
+        {displayQuestions.map((q, index) => (
+          <div key={q.id} className="break-inside-avoid-page p-4 border-b">
+            <div className="flex items-start mb-2">
+              <h3 className="text-lg font-bold mr-4">{index + 1}.</h3>
+              <div className="text-base">
+                <LatexRenderer text={q.question || ''} className="inline" />
+                {printOption === 'withAnswers' && (
+                  <span className="text-blue-600 font-bold ml-2">?뺣떟: {q.answer}踰?/span>
+                  )}
+                  </div>
+              </div>
+              {q.imageUrl && (
+                <div className="mb-2 pl-8">
+                  <img src={q.imageUrl} alt={`臾몄젣 ${index + 1} ?대?吏`} className="max-w-xs rounded" />
+                </div>
+              )}
+              <div className="space-y-2 pl-8">
+                {[1, 2, 3, 4].map(optNum => {
+                  const optionKey = `option${optNum}` as keyof Question;
+                  // ?뺣떟 ?쒖떆???댁꽕 紐⑤뱶?먯꽌留??좏깮吏???쒖떆, ?뺣떟 ?쒖떆 紐⑤뱶?먯꽌??臾몄젣 ?앹뿉留??쒖떆
+                  const isCorrectAnswer = printOption === 'withExplanations' && q.answer === optNum;
+                  return (
+                    <div key={optNum} className="flex items-start">
+                      <span className={`font-bold w-6 ${isCorrectAnswer ? 'text-blue-600' : ''}`}>
+                        {optNum}.
+                      </span>
+                      <LatexRenderer text={q[optionKey] as string} className={`text-base ${isCorrectAnswer ? 'font-bold text-blue-600' : ''}`} />
+                    </div>
+                  );
+                })}
+              </div>
+              {printOption === 'withExplanations' && (
+                <div className="mt-2 pl-8 text-sm text-blue-600 font-bold">
+                  ?뺣떟: {q.answer}踰?
+                </div>
+              )}
+              {printOption === 'withExplanations' && q.explanation && (
+                <div className="mt-2 pl-8 p-2 bg-gray-50 rounded text-sm">
+                  <span className="font-bold">?댁꽕:</span> <LatexRenderer text={q.explanation} className="inline" />
+                </div>
+              )}
+            </div>
+          ))}
+          </div>
+      </div>
+
+      {/* ?붾㈃??UI */}
+      <div className="min-h-screen bg-slate-100 p-3 non-printable">
+        <div className="max-w-7xl mx-auto">
+          {/* ?곷떒 ?ㅻ뜑 */}
+          <div className="bg-white rounded-xl shadow-sm p-4 mb-4 border border-slate-200">
+            <div className="flex justify-between items-center flex-wrap gap-4">
+              <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                <span className="text-2xl">??/span> ?꾧린湲곕뒫??CBT
+              </h1>
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* ??대㉧ (?쒕뜡 60臾몄젣 紐⑤뱶???쒓컙 ?쒗븳 ?놁쓬) */}
+                {examMode === 'untimedRandom' ? (
+                  <Badge variant="secondary" className="px-3 py-1.5 text-sm bg-green-100 text-green-700 hover:bg-green-200 border-green-200">
+                    ???쒓컙 ?쒗븳 ?놁쓬
+                  </Badge>
+                ) : (
+                  <Badge
+                    variant="outline"
+                    className={`px-3 py-1.5 text-sm border-2 ${remainingTime < 300
+                      ? 'bg-red-50 text-red-700 border-red-200 animate-pulse'
+                      : 'bg-blue-50 text-blue-700 border-blue-200'
+                      }`}
+                  >
+                    ?깍툘 {formatTime(remainingTime)}
+                  </Badge>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowFeedbackBoard(true)}
+                  className="text-orange-600 border-orange-200 hover:bg-orange-50"
+                  title="?쒕낫 寃뚯떆??
+                >
+                  ?뱥 ?쒕낫
+                </Button>
+                <Button
+                  variant="outline"
+                size="sm"
+                onClick={() => setShowCalculator(true)}
+                className="text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                title="怨듯븰??怨꾩궛湲?
+                >
+                ?뵢 怨꾩궛湲?
+              </Button>
+              {/* ?몄뇙 踰꾪듉 - ?쒕뜡 紐⑤뱶?먯꽌留??쒖떆, 紐⑤컮?쇱뿉?쒕뒗 ?④? */}
+              {!isMobile && (examMode === 'untimedRandom' || examMode === 'random' || examMode === 'category') && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePrint}
+                  className="text-teal-600 border-teal-200 hover:bg-teal-50"
+                  title="?몄뇙"
+                >
+                  ?뼥截??몄뇙
+                </Button>
+              )}
+              {/* ??ν븯湲?踰꾪듉 */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSave}
+                className="text-green-600 border-green-200 hover:bg-green-50"
+              >
+                ?뮶 ??ν븯湲?
+              </Button>
+              {/* ?쒓컙 珥덇린??踰꾪듉 (?쒓컙 ?쒗븳???덈뒗 紐⑤뱶留??쒖떆) */}
+              {examMode !== 'untimedRandom' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleResetTime}
+                  className="text-purple-600 border-purple-200 hover:bg-purple-50"
+                >
+                  ???쒓컙 珥덇린??
+                </Button>
+              )}
+              {/* 梨꾩젏?섍린 踰꾪듉 - 紐⑤컮?쇱뿉?쒕뒗 ?④? */}
+              {!isMobile && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleScore}
+                  className="bg-yellow-500 hover:bg-yellow-600 text-white border-none shadow-sm"
+                >
+                  ?뱤 梨꾩젏?섍린
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleExit}
+                className="text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+              >
+                ???섍?湲?
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* 메인 콘텐츠 */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* 좌측: 문제 영역 */}
+          <div className="lg:col-span-8 xl:col-span-9 space-y-6">
+            {/* 글자 크기 조절 */}
+            <Card className="p-4 flex items-center gap-4 shadow-sm border-slate-200">
+              <span className="text-sm font-semibold text-slate-600">글자 크기:</span>
+              <div className="flex bg-slate-100 rounded-lg p-1 gap-1">
+                {[100, 150, 200].map((size) => (
+                  <button
+                    key={size}
+                    onClick={() => setFontSize(size as 100 | 150 | 200)}
+                    className={`px-3 py-1 text-xs sm:text-sm rounded-md transition-all ${fontSize === size
+                      ? 'bg-white text-blue-600 shadow-sm font-bold'
+                      : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                  >
+                    {size}%
+                  </button>
+                ))}
+              </div>
+            </Card>
+
+            {/* 문제 카드 */}
+            <div className={`space-y-6 ${fontSizeClass}`}>
+              {displayQuestions.slice(
+                Math.floor(currentIndex / 4) * 4,
+                Math.min(Math.floor(currentIndex / 4) * 4 + 4, displayQuestions.length)
+              ).map((q, pageIdx) => {
+                const questionIdx = Math.floor(currentIndex / 4) * 4 + pageIdx;
+                const questionNum = questionIdx + 1;
+                const userAnswer = answers[q.id];
+
+                return (
+                  <Card key={q.id} className="border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                    <CardContent className="p-6">
+                      <div className="flex justify-between items-start mb-4">
+                        <h2 className="text-lg font-medium text-slate-900 flex items-start gap-2 leading-relaxed flex-1">
+                          <span className="font-bold text-blue-600 whitespace-nowrap">{questionNum}.</span>
+                          <span className="inline"><LatexRenderer text={q.question || ''} className="inline" /></span>
+                        </h2>
+
+                        {/* 문제 이해도 체크 (PC 모드) */}
+                        {examMode !== 'timedRandom' && (
+                          <div className="ml-4 flex-shrink-0">
+                            <div className="flex gap-1">
+                              {[
+                                { value: 1, label: '전혀 모름', color: 'bg-red-100 text-red-700 border-red-200' },
+                                { value: 4, label: '반복 필요', color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
+                                { value: 6, label: '완벽 이해', color: 'bg-green-100 text-green-700 border-green-200' },
+                              ].map(({ value, label, color }) => {
+                                const isSelected = learningProgress[q.id] === value;
+                                return (
+                                  <button
+                                    key={value}
+                                    onClick={() => handleLearningProgressChange(q.id, value)}
+                                    title={label}
+                                    className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] border transition-all ${isSelected
+                                      ? `${color} font-bold ring-2 ring-offset-1 ring-slate-200`
+                                      : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100'
+                                      }`}
+                                  >
+                                    {value === 1 ? '?' : value === 4 ? '!' : '✓'}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 이미지 영역 */}
+                      {q.hasImage && (
+                        <div className="mb-6 min-h-[200px] flex items-center justify-center bg-slate-50 rounded-lg border border-slate-200 p-4">
+                          {q.imageUrl ? (
+                            <img
+                              src={q.imageUrl}
+                              alt={`문제 ${questionNum} 이미지`}
+                              className="max-w-full h-auto rounded shadow-sm"
+                            />
+                          ) : (
+                            <div className="flex flex-col items-center gap-2 text-slate-400">
+                              <span className="text-2xl">🖼️</span>
+                              <span className="text-sm">이미지 준비 중</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {(() => {
+                        const optionTexts = [q.option1, q.option2, q.option3, q.option4];
+                        const maxLength = Math.max(...optionTexts.map(text => (text || '').length));
+
+                        let gridClass = "space-y-2";
+                        if (maxLength <= 8) gridClass = "grid grid-cols-4 gap-2";
+                        else if (maxLength <= 20) gridClass = "grid grid-cols-2 gap-3";
+
+                        return (
+                          <div className={gridClass}>
+                            {[1, 2, 3, 4].map(optNum => {
+                              const optionKey = `option${optNum}` as keyof Question;
+                              const optionText = q[optionKey] as string;
+                              const isSelected = userAnswer === optNum;
+
+                              return (
+                                <div
+                                  key={optNum}
+                                  onClick={() => {
+                                    setCurrentIndex(questionIdx);
+                                    handleAnswerSelect(optNum);
+                                  }}
+                                  className={`relative flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-all border ${isSelected
+                                    ? 'bg-blue-50 border-blue-200 ring-1 ring-blue-200'
+                                    : 'bg-white border-slate-100 hover:border-blue-200 hover:bg-slate-50'
+                                    }`}
+                                >
+                                  <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold transition-colors ${isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'
+                                    }`}>
+                                    {optNum}
+                                  </div>
+                                  <div className={`text-base leading-relaxed ${isSelected ? 'text-blue-900 font-medium' : 'text-slate-700'}`}>
+                                    <LatexRenderer text={optionText || ''} />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+
+            {/* 페이지네이션 */}
+            <div className="flex justify-center items-center gap-4 py-6">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const prevPage = Math.floor(currentIndex / 4) - 1;
+                  if (prevPage >= 0) {
+                    setCurrentIndex(prevPage * 4);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }
+                }}
+                disabled={Math.floor(currentIndex / 4) === 0}
+                className="w-32"
+              >
+                ◀ 이전 페이지
+              </Button>
+              <span className="text-slate-600 font-medium">
+                {Math.floor(currentIndex / 4) + 1} / {Math.ceil(displayQuestions.length / 4)}
+              </span>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const nextPage = Math.floor(currentIndex / 4) + 1;
+                  const nextPageStart = nextPage * 4;
+                  if (nextPageStart < displayQuestions.length) {
+                    setCurrentIndex(nextPageStart);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }
+                }}
+                disabled={Math.floor(currentIndex / 4) >= Math.ceil(displayQuestions.length / 4) - 1}
+                className="w-32"
+              >
+                다음 페이지 ▶
+              </Button>
+            </div>
+          </div>
+
+          {/* 우측: 답안표기란 (Sticky) */}
+          <div className="lg:col-span-4 xl:col-span-3">
+            <div className="sticky top-4 space-y-4">
+              <Card className="border-slate-200 shadow-sm">
+                <CardHeader className="bg-slate-50 border-b border-slate-100 py-3">
+                  <CardTitle className="text-sm font-bold text-slate-700 flex justify-between items-center">
+                    <span>답안 표기란</span>
+                    <span className="text-xs font-normal text-slate-500">
+                      진행률: {Math.round((answeredCount / displayQuestions.length) * 100)}%
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0 max-h-[calc(100vh-300px)] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+                  <div className="p-3 space-y-2">
+                    {displayQuestions.map((q, idx) => {
+                      const userAnswer = answers[q.id];
+                      const isCurrent = idx === currentIndex;
+
+                      return (
+                        <div
+                          key={q.id}
+                          id={`omr-pc-${idx}`}
+                          onClick={() => {
+                            setCurrentIndex(idx);
+                            // 해당 문제가 있는 페이지로 이동 계산 필요 없음 (currentIndex가 바뀌면 렌더링이 바뀜)
+                          }}
+                          className={`p-2 rounded-lg border transition-all cursor-pointer ${isCurrent
+                            ? 'bg-yellow-50 border-yellow-400 ring-1 ring-yellow-200'
+                            : 'bg-white border-slate-100 hover:border-slate-300'
+                            }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className={`w-6 h-6 flex items-center justify-center rounded font-bold text-xs ${isCurrent
+                              ? 'bg-yellow-400 text-yellow-900'
+                              : 'bg-slate-100 text-slate-500'
+                              }`}>
+                              {idx + 1}
+                            </div>
+
+                            <div className="flex gap-1">
+                              {[1, 2, 3, 4].map((optNum) => (
+                                <div
+                                  key={optNum}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCurrentIndex(idx);
+                                    handleAnswerSelect(optNum);
+                                  }}
+                                  className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-all cursor-pointer ${userAnswer === optNum
+                                    ? 'bg-blue-600 text-white shadow-sm scale-110'
+                                    : 'bg-slate-50 border border-slate-200 text-slate-400 hover:border-blue-300 hover:text-blue-500'
+                                    }`}
+                                >
+                                  {optNum}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+                <CardFooter className="p-3 bg-slate-50 border-t border-slate-100 flex flex-col gap-2">
+                  <Button
+                    variant="secondary"
+                    className="w-full bg-orange-100 text-orange-700 hover:bg-orange-200 border-orange-200"
+                    onClick={handleGoToUnanswered}
+                  >
+                    안 푼 문제 이동
+                  </Button>
+                  <Button
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                    onClick={() => handleSubmit(false)}
+                  >
+                    답안 제출
+                  </Button>
+                </CardFooter>
+              </Card>
+            </div>
+          </div>
+        </div>
+
+        {/* 계산기 모달 */}
+        {showCalculator && (
+          <ScientificCalculator onClose={() => setShowCalculator(false)} />
+        )}
+
+        {/* 제보 게시판 모달 */}
+        {showFeedbackBoard && (
+          <FeedbackBoard
+            onClose={() => setShowFeedbackBoard(false)}
+            currentQuestion={currentQuestion}
+            currentQuestionIndex={currentIndex}
+          />
+        )}
+
+        {/* 인쇄 옵션 선택 모달 */}
+        {showPrintOptions && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 non-printable animate-in fade-in duration-200">
+            <Card className="max-w-md w-full shadow-2xl">
+              <CardHeader>
+                <CardTitle className="text-xl flex items-center gap-2">
+                  <span>🖨️</span> 인쇄 옵션 선택
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-slate-500 mb-4">인쇄할 내용을 선택하세요</p>
+
+                <RadioGroup value={printOption} onValueChange={(v) => setPrintOption(v as any)} className="gap-3">
+                  <div className={`flex items-start space-x-3 space-y-0 rounded-md border p-4 transition-all cursor-pointer ${printOption === 'questionsOnly' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`} onClick={() => setPrintOption('questionsOnly')}>
+                    <RadioGroupItem value="questionsOnly" id="r1" className="mt-1" />
+                    <div className="grid gap-1.5 leading-none">
+                      <Label htmlFor="r1" className="font-bold cursor-pointer">📝 문제만 인쇄</Label>
+                      <p className="text-sm text-slate-500">문제와 선택지만 인쇄 (정답 표시 없음)</p>
+                    </div>
+                  </div>
+
+                  <div className={`flex items-start space-x-3 space-y-0 rounded-md border p-4 transition-all cursor-pointer ${printOption === 'withAnswers' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`} onClick={() => setPrintOption('withAnswers')}>
+                    <RadioGroupItem value="withAnswers" id="r2" className="mt-1" />
+                    <div className="grid gap-1.5 leading-none">
+                      <Label htmlFor="r2" className="font-bold cursor-pointer">✅ 정답 표시 인쇄</Label>
+                      <p className="text-sm text-slate-500">문제 + 정답 표시 (파란색 ✓ 표시)</p>
+                    </div>
+                  </div>
+
+                  <div className={`flex items-start space-x-3 space-y-0 rounded-md border p-4 transition-all cursor-pointer ${printOption === 'withExplanations' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`} onClick={() => setPrintOption('withExplanations')}>
+                    <RadioGroupItem value="withExplanations" id="r3" className="mt-1" />
+                    <div className="grid gap-1.5 leading-none">
+                      <Label htmlFor="r3" className="font-bold cursor-pointer">📚 정답 + 해설 인쇄</Label>
+                      <p className="text-sm text-slate-500">문제 + 정답 + 해설 전체</p>
+                    </div>
+                  </div>
+                </RadioGroup>
+              </CardContent>
+              <CardFooter className="flex gap-3 justify-end bg-slate-50 p-4 rounded-b-xl">
+                <Button variant="outline" onClick={() => setShowPrintOptions(false)}>취소</Button>
+                <Button onClick={handlePrintExecute}>인쇄하기</Button>
+              </CardFooter>
+            </Card>
+          </div>
+        )}
+
+        {/* 채점 결과 모달 */}
+        {showScoreModal && scoreResult && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-300">
+            <Card className="max-w-md w-full mx-4 shadow-2xl border-t-4 border-t-blue-600">
+              <CardHeader className="text-center pb-2">
+                <CardTitle className="text-2xl font-bold">📊 채점 결과</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6 pt-4">
+                <div className="text-center">
+                  <div className="text-6xl font-black text-blue-600 mb-2 tracking-tighter">{scoreResult.score}<span className="text-3xl text-blue-400 font-bold ml-1">점</span></div>
+                  <Badge variant={scoreResult.score >= 60 ? "default" : "destructive"} className="text-lg px-4 py-1">
+                    {scoreResult.score >= 60 ? "🎉 합격입니다!" : "💪 조금 더 노력해보세요"}
+                  </Badge>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div className="bg-green-50 p-3 rounded-lg border border-green-100">
+                    <div className="text-sm text-green-600 font-medium mb-1">정답</div>
+                    <div className="text-2xl font-bold text-green-700">{scoreResult.correct}</div>
+                  </div>
+                  <div className="bg-red-50 p-3 rounded-lg border border-red-100">
+                    <div className="text-sm text-red-600 font-medium mb-1">오답</div>
+                    <div className="text-2xl font-bold text-red-700">{scoreResult.wrong}</div>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                    <div className="text-sm text-slate-600 font-medium mb-1">미답변</div>
+                    <div className="text-2xl font-bold text-slate-700">{scoreResult.unanswered}</div>
+                  </div>
+                </div>
+              </CardContent>
+              <CardFooter className="pt-2 pb-6">
+                <Button
+                  onClick={() => setShowScoreModal(false)}
+                  className="w-full text-lg font-bold h-12 shadow-md hover:shadow-lg transition-all"
+                >
+                  결과 확인하기
+                </Button>
+              </CardFooter>
+            </Card>
+          </div>
+        )}
+      </div>
+    </div>
+  </>
+);
+      }

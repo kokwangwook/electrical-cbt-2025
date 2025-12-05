@@ -20,6 +20,18 @@ export interface Question {
   helpResourceUrl?: string; // 학습 도움 자료 URL (유튜브 링크 등)
 }
 
+// ========== 플래시카드 (Flashcard) ==========
+export interface Flashcard {
+  id: number; // 플래시카드 고유 ID
+  no: number; // 문제 번호 (1~1300, 구글시트 원본 번호)
+  category: string; // 카테고리 ('전기이론' | '전기기기' | '전기설비')
+  question: string; // 문제 전문 (LaTeX 지원)
+  answer_keyword: string; // 정답 키워드 (짧은 답변)
+  explanation: string; // 해설 및 암기 팁
+  created_at?: string; // 생성일시 (Supabase)
+  updated_at?: string; // 수정일시 (Supabase)
+}
+
 // ========== 회원 (Member) ==========
 export interface Member {
   id: number; // 회원 고유 ID

@@ -45,7 +45,7 @@ export function compressImage(file: File, maxSizeKB: number = 50, maxWidth: numb
         let compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
 
         // 목표 크기에 맞출 때까지 품질 조정
-        while (compressedDataUrl.length > maxSizeKB * 1024 * 4/3 && quality > 0.1) {
+        while (compressedDataUrl.length > maxSizeKB * 1024 * 4 / 3 && quality > 0.1) {
           quality -= 0.1;
           compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
         }
@@ -141,12 +141,13 @@ const CURRENT_EXAM_SESSION_KEY = 'currentExamSession';
 const FEEDBACKS_KEY = 'feedbacks';
 const LAST_SERVER_SYNC_KEY = 'lastServerSync'; // 마지막 서버 동기화 정보
 const GLOBAL_LEARNING_PROGRESS_KEY = 'globalLearningProgress'; // 전역 문제 이해도
+const GLOBAL_USER_ANSWERS_KEY = 'globalUserAnswers'; // 전역 사용자 답변
 
 // ========== 초기화 ==========
 export function initializeData(): void {
   // 회원 데이터 초기화 및 병합
   const existingMembers = getMembers();
-  
+
   if (existingMembers.length === 0) {
     // 회원 데이터가 없으면 초기 회원 데이터로 초기화
     const members: Member[] = initialMembers.map((m, idx) => ({
@@ -161,12 +162,12 @@ export function initializeData(): void {
     const existingNames = new Set(
       existingMembers.map(m => m.name.trim().toLowerCase().replace(/\s+/g, ' '))
     );
-    
+
     const newMembers: Member[] = [];
-    let maxId = existingMembers.length > 0 
-      ? Math.max(...existingMembers.map(m => m.id)) 
+    let maxId = existingMembers.length > 0
+      ? Math.max(...existingMembers.map(m => m.id))
       : 0;
-    
+
     initialMembers.forEach(initialMember => {
       const normalizedName = initialMember.name.trim().toLowerCase().replace(/\s+/g, ' ');
       if (!existingNames.has(normalizedName)) {
@@ -179,7 +180,7 @@ export function initializeData(): void {
         console.log(`➕ 새 회원 추가: ${initialMember.name}`);
       }
     });
-    
+
     if (newMembers.length > 0) {
       const updatedMembers = [...existingMembers, ...newMembers];
       saveMembers(updatedMembers);
@@ -229,9 +230,9 @@ export function getQuestions(): Question[] {
     if (!data) {
       return [];
     }
-    
+
     const questions = JSON.parse(data);
-    
+
     // 데이터 유효성 검사
     if (!Array.isArray(questions)) {
       console.error('❌ 문제 데이터가 배열이 아닙니다. 데이터를 초기화합니다.');
@@ -245,7 +246,7 @@ export function getQuestions(): Question[] {
       }
       return [];
     }
-    
+
     // 최신 문제가 맨 위로 오도록 ID 내림차순 정렬
     return questions.sort((a: Question, b: Question) => b.id - a.id);
   } catch (error) {
@@ -313,7 +314,7 @@ export function saveQuestions(questions: Question[]): void {
         finalQuestions = questionsWithoutImages;
       }
     }
-    
+
     // 기존 데이터 백업 (안전장치)
     try {
       const existingData = localStorage.getItem(QUESTIONS_KEY);
@@ -337,7 +338,7 @@ export function saveQuestions(questions: Question[]): void {
     } catch (e) {
       console.warn('백업 생성 실패 (계속 진행):', e);
     }
-    
+
     const jsonData = JSON.stringify(finalQuestions);
     localStorage.setItem(QUESTIONS_KEY, jsonData);
     console.log(`✅ ${finalQuestions.length}개 문제 저장 완료`);
@@ -396,13 +397,13 @@ export function saveQuestions(questions: Question[]): void {
 
 export function addQuestion(question: Omit<Question, 'id'>): Question {
   const questions = getQuestions();
-  
+
   // 중복 방지를 위해 사용 중인 ID 확인
   const usedIds = new Set(questions.map(q => q.id));
-  
+
   // 1000-1999 범위에서 사용 가능한 ID 찾기
   let newId: number | null = null;
-  
+
   // 1000부터 시작해서 사용 가능한 ID 찾기
   for (let i = 1000; i <= 1999; i++) {
     if (!usedIds.has(i)) {
@@ -410,19 +411,19 @@ export function addQuestion(question: Omit<Question, 'id'>): Question {
       break;
     }
   }
-  
+
   // 1000-1999 범위가 모두 사용 중이면 2000 이상 사용
   if (newId === null) {
     const maxId = questions.length > 0 ? Math.max(...questions.map(q => q.id)) : 999;
     newId = maxId + 1;
     console.warn(`⚠️ 1000-1999 범위가 모두 사용 중입니다. ID ${newId}를 사용합니다.`);
   }
-  
+
   // 중복 체크 (안전장치)
   if (usedIds.has(newId)) {
     throw new Error(`ID ${newId}는 이미 사용 중입니다. ID 생성에 실패했습니다.`);
   }
-  
+
   const newQuestion: Question = { ...question, id: newId };
   questions.push(newQuestion);
   // 최신 문제가 맨 위로 오도록 ID 내림차순 정렬
@@ -479,15 +480,15 @@ export function getMembers(): Member[] {
       }
       return [];
     }
-    
+
     const members = JSON.parse(data);
-    
+
     // 데이터 유효성 검사
     if (!Array.isArray(members)) {
       console.error('❌ 회원 데이터가 배열이 아닙니다.');
       return [];
     }
-    
+
     return members;
   } catch (error) {
     console.error('❌ 회원 데이터 읽기 실패:', error);
@@ -501,14 +502,14 @@ export function saveMembers(members: Member[]): void {
 
 export function addMember(member: Omit<Member, 'id' | 'registeredAt'>): Member {
   const members = getMembers();
-  
+
   // 이름 중복 체크 (공백 제거 및 대소문자 구분 없이)
   const normalizedName = member.name.trim().toLowerCase();
   const existingMember = members.find(m => m.name.trim().toLowerCase() === normalizedName);
   if (existingMember) {
     throw new Error(`이미 등록된 이름입니다: ${member.name}`);
   }
-  
+
   const newId = members.length > 0 ? Math.max(...members.map(m => m.id)) + 1 : 1;
   const newMember: Member = {
     ...member,
@@ -548,39 +549,39 @@ export function getMemberById(id: number): Member | null {
 export function getMemberByCredentials(name: string, phone: string, email: string): Member | null {
   try {
     const members = getMembers();
-    
+
     if (members.length === 0) {
       console.warn('⚠️ 등록된 회원이 없습니다.');
       return null;
     }
-    
+
     // 입력값 정규화
     const normalizedName = name.trim().toLowerCase().replace(/\s+/g, ' ');
     const normalizedPhone = phone.trim().replace(/[-\s]/g, ''); // 하이픈과 공백 제거
     const normalizedEmail = email.trim().toLowerCase();
-    
+
     console.log('🔍 로그인 시도:', { name: normalizedName, phone: normalizedPhone, email: normalizedEmail });
-    
+
     // 이름, 전화번호, 이메일이 모두 일치하는 회원 찾기
     const member = members.find(m => {
       const memberName = m.name.trim().toLowerCase().replace(/\s+/g, ' ');
       const memberPhone = m.phone.trim().replace(/[-\s]/g, '');
       const memberEmail = (m.email || '').trim().toLowerCase();
-      
+
       const nameMatch = memberName === normalizedName;
       const phoneMatch = memberPhone === normalizedPhone;
       const emailMatch = normalizedEmail && memberEmail ? memberEmail === normalizedEmail : true; // 이메일이 없으면 무시
-      
+
       // 이름과 전화번호는 필수, 이메일은 선택
       return nameMatch && phoneMatch && (normalizedEmail === '' || emailMatch);
     });
-    
+
     if (member) {
       console.log('✅ 로그인 성공:', member.name);
     } else {
       console.log('❌ 일치하는 회원을 찾을 수 없습니다.');
     }
-    
+
     return member || null;
   } catch (error) {
     console.error('❌ 회원 검색 오류:', error);
@@ -594,48 +595,48 @@ export function getMemberByCredentials(name: string, phone: string, email: strin
 export function getMemberByAnyCredential(input: string): Member | null {
   try {
     const members = getMembers();
-    
+
     if (members.length === 0) {
       console.warn('⚠️ 등록된 회원이 없습니다.');
       return null;
     }
-    
+
     if (!input || !input.trim()) {
       return null;
     }
-    
+
     // 입력값 정규화
     const normalizedInput = input.trim();
     const normalizedInputLower = normalizedInput.toLowerCase();
     const normalizedInputPhone = normalizedInput.replace(/[-\s]/g, ''); // 전화번호용 (하이픈/공백 제거)
     const normalizedInputName = normalizedInputLower.replace(/\s+/g, ' '); // 이름용 (공백 정규화)
-    
+
     console.log('🔍 유연한 로그인 시도:', { input: normalizedInput });
-    
+
     // 이름, 전화번호, 이메일 중 하나라도 일치하는 회원 찾기
     const member = members.find(m => {
       const memberName = m.name.trim().toLowerCase().replace(/\s+/g, ' ');
       const memberPhone = m.phone.trim().replace(/[-\s]/g, '');
       const memberEmail = (m.email || '').trim().toLowerCase();
-      
+
       // 이름 매칭
       const nameMatch = memberName === normalizedInputName;
-      
+
       // 전화번호 매칭 (하이픈/공백 제거 후 비교)
       const phoneMatch = memberPhone === normalizedInputPhone;
-      
+
       // 이메일 매칭
       const emailMatch = memberEmail && normalizedInputLower === memberEmail;
-      
+
       return nameMatch || phoneMatch || emailMatch;
     });
-    
+
     if (member) {
       console.log('✅ 로그인 성공:', member.name, '(매칭 방식: 이름/전화번호/이메일)');
     } else {
       console.log('❌ 일치하는 회원을 찾을 수 없습니다.');
     }
-    
+
     return member || null;
   } catch (error) {
     console.error('❌ 회원 검색 오류:', error);
@@ -646,17 +647,17 @@ export function getMemberByAnyCredential(input: string): Member | null {
 export function getMemberByName(name: string): Member | null {
   try {
     const members = getMembers();
-    
+
     if (members.length === 0) {
       console.warn('⚠️ 등록된 회원이 없습니다.');
       return null;
     }
-    
+
     // 이름 비교 시 공백 제거 및 대소문자 구분 없이 비교
     const normalizedName = name.trim().toLowerCase().replace(/\s+/g, ' '); // 연속 공백을 하나로
     console.log('🔍 검색 이름 (정규화):', normalizedName);
     console.log('📋 등록된 회원 수:', members.length);
-    
+
     const member = members.find(m => {
       const memberName = m.name.trim().toLowerCase().replace(/\s+/g, ' ');
       const match = memberName === normalizedName;
@@ -665,13 +666,13 @@ export function getMemberByName(name: string): Member | null {
       }
       return match;
     });
-    
+
     if (!member) {
       // 디버깅: 모든 회원 이름 출력
       console.log('📋 등록된 회원 목록:', members.map(m => `"${m.name}"`));
       console.log('❌ 매칭 실패. 입력:', `"${name}"`, '→ 정규화:', `"${normalizedName}"`);
     }
-    
+
     return member || null;
   } catch (error) {
     console.error('❌ 회원 검색 실패:', error);
@@ -772,20 +773,20 @@ export function removeWrongAnswer(questionId: number): void {
   const wrongAnswers = getWrongAnswers();
   console.log(`📋 제거 전 오답 수: ${wrongAnswers.length}`);
   console.log(`📋 제거 전 오답 목록:`, wrongAnswers.map(wa => wa.questionId));
-  
+
   const beforeCount = wrongAnswers.length;
   const filtered = wrongAnswers.filter(wa => wa.questionId !== questionId);
   const afterCount = filtered.length;
-  
+
   console.log(`📋 제거 후 오답 수: ${afterCount}`);
   console.log(`📋 제거된 문제: ${beforeCount - afterCount}개`);
-  
+
   if (beforeCount === afterCount) {
     console.log(`⚠️ 문제 ${questionId}가 오답노트에 없습니다.`);
   } else {
     console.log(`✅ 문제 ${questionId}가 오답노트에서 제거되었습니다.`);
   }
-  
+
   saveWrongAnswers(filtered);
   console.log(`💾 오답노트 저장 완료`);
 }
@@ -917,6 +918,56 @@ export function updateGlobalLearningProgress(questionId: number, progress: numbe
   saveGlobalLearningProgress(currentProgress);
 }
 
+// ========== 전역 사용자 답변 (Global User Answers) 관리 ==========
+
+/**
+ * 전역 사용자 답변 불러오기
+ * 문제 ID를 키로 하는 객체: { [questionId]: answer }
+ * 세션과 관계없이 사용자가 선택한 답이 영구적으로 저장됩니다.
+ */
+export function getGlobalUserAnswers(): { [questionId: number]: number } {
+  const data = localStorage.getItem(GLOBAL_USER_ANSWERS_KEY);
+  return data ? JSON.parse(data) : {};
+}
+
+/**
+ * 전역 사용자 답변 저장
+ */
+export function saveGlobalUserAnswers(answers: { [questionId: number]: number }): void {
+  try {
+    localStorage.setItem(GLOBAL_USER_ANSWERS_KEY, JSON.stringify(answers));
+  } catch (error) {
+    console.error('❌ 전역 사용자 답변 저장 실패:', error);
+  }
+}
+
+/**
+ * 특정 문제의 사용자 답변 업데이트
+ */
+export function updateGlobalUserAnswer(questionId: number, answer: number): void {
+  const currentAnswers = getGlobalUserAnswers();
+  currentAnswers[questionId] = answer;
+  saveGlobalUserAnswers(currentAnswers);
+}
+
+/**
+ * 특정 문제의 사용자 답변 삭제
+ */
+export function removeGlobalUserAnswer(questionId: number): void {
+  const currentAnswers = getGlobalUserAnswers();
+  delete currentAnswers[questionId];
+  saveGlobalUserAnswers(currentAnswers);
+}
+
+/**
+ * 여러 문제의 사용자 답변 삭제 (문제 ID 배열)
+ */
+export function removeGlobalUserAnswers(questionIds: number[]): void {
+  const currentAnswers = getGlobalUserAnswers();
+  questionIds.forEach(id => delete currentAnswers[id]);
+  saveGlobalUserAnswers(currentAnswers);
+}
+
 /**
  * 복습 모드 문제 가져오기
  * 학습 진도 1-5만 포함 (완벽 이해 6 제외)
@@ -925,32 +976,32 @@ export function updateGlobalLearningProgress(questionId: number, progress: numbe
 export function getReviewQuestions(): Question[] {
   const allQuestions = getQuestions();
   const globalProgress = getGlobalLearningProgress();
-  
+
   // 학습 진도 1-5만 필터링 (6 제외)
   const eligibleQuestions = allQuestions.filter(q => {
     const progress = globalProgress[q.id];
     // 학습 진도가 있고, 완벽 이해(6)가 아닌 문제만 포함
     return progress !== undefined && progress !== 6;
   });
-  
+
   // 카테고리별로 20문제씩 선택
   const categories = ['전기이론', '전기기기', '전기설비'];
   const selectedQuestions: Question[] = [];
-  
+
   categories.forEach(category => {
     const categoryQuestions = eligibleQuestions
       .filter(q => q.category === category)
       .sort(() => Math.random() - 0.5) // 랜덤 섞기
       .slice(0, 20); // 각 카테고리에서 최대 20문제
-    
+
     selectedQuestions.push(...categoryQuestions);
   });
-  
+
   console.log(`📚 복습 모드: 학습 진도 1-5 문제 중 ${selectedQuestions.length}문제 선택`);
   console.log(`   - 전기이론: ${selectedQuestions.filter(q => q.category === '전기이론').length}문제`);
   console.log(`   - 전기기기: ${selectedQuestions.filter(q => q.category === '전기기기').length}문제`);
   console.log(`   - 전기설비: ${selectedQuestions.filter(q => q.category === '전기설비').length}문제`);
-  
+
   return selectedQuestions;
 }
 
@@ -1032,7 +1083,7 @@ export function updateStatistics(result: ExamResult): void {
 
   // 전체 문제 목록 사용 (있으면)
   const allQuestions = result.allQuestions || [];
-  
+
   if (allQuestions.length > 0) {
     // 전체 문제를 카테고리별로 그룹화
     const categoryGroups: Record<string, Question[]> = {};
@@ -1055,7 +1106,7 @@ export function updateStatistics(result: ExamResult): void {
 
       // 해당 카테고리의 오답 수 계산
       const wrongInCategory = result.wrongQuestions.filter(q => q.category === category).length;
-      
+
       // 해당 카테고리의 정답 수 계산 (전체 - 오답)
       const correctInCategory = questions.length - wrongInCategory;
       stats.categoryStats[category].correct += correctInCategory;
@@ -1097,10 +1148,24 @@ export function clearStatistics(): void {
  * 모든 데이터 초기화 (개발용)
  */
 export function clearAllData(): void {
+  // 로그인 정보 백업 (로그아웃 방지)
+  const currentUser = localStorage.getItem(CURRENT_USER_KEY);
+  const loginHistory = localStorage.getItem('loginHistory');
+
   localStorage.clear();
   initializeData();
-  console.log('✅ 모든 데이터 초기화 완료');
+
+  // 로그인 정보 복원
+  if (currentUser) {
+    localStorage.setItem(CURRENT_USER_KEY, currentUser);
+  }
+  if (loginHistory) {
+    localStorage.setItem('loginHistory', loginHistory);
+  }
+
+  console.log('✅ 모든 데이터 초기화 완료 (로그인 세션 유지)');
 }
+
 
 /**
  * 데이터 내보내기 (JSON)
@@ -1144,15 +1209,15 @@ export function getFeedbacks(): Feedback[] {
     if (!data) {
       return [];
     }
-    
+
     const feedbacks = JSON.parse(data);
-    
+
     // 데이터 유효성 검사
     if (!Array.isArray(feedbacks)) {
       console.error('❌ 피드백 데이터가 배열이 아닙니다.');
       return [];
     }
-    
+
     // 최신 피드백이 맨 위로 오도록 시간 내림차순 정렬
     return feedbacks.sort((a: Feedback, b: Feedback) => b.timestamp - a.timestamp);
   } catch (error) {
@@ -1167,7 +1232,7 @@ export function saveFeedbacks(feedbacks: Feedback[]): void {
     if (!Array.isArray(feedbacks)) {
       throw new Error('저장할 데이터가 배열이 아닙니다.');
     }
-    
+
     const jsonData = JSON.stringify(feedbacks);
     localStorage.setItem(FEEDBACKS_KEY, jsonData);
     console.log(`✅ ${feedbacks.length}개 피드백 저장 완료`);
@@ -1184,17 +1249,17 @@ export function saveFeedbacks(feedbacks: Feedback[]): void {
 
 export function addFeedback(feedback: Omit<Feedback, 'id' | 'timestamp'>): Feedback {
   const feedbacks = getFeedbacks();
-  
+
   // ID 생성 (기존 ID 중 최대값 + 1)
   const maxId = feedbacks.length > 0 ? Math.max(...feedbacks.map(f => f.id)) : 0;
   const newId = maxId + 1;
-  
+
   const newFeedback: Feedback = {
     ...feedback,
     id: newId,
     timestamp: Date.now(),
   };
-  
+
   feedbacks.push(newFeedback);
   saveFeedbacks(feedbacks);
   console.log(`✅ 피드백 추가 완료: ID ${newId}`);
@@ -1463,14 +1528,15 @@ export function deleteAllData(): void {
     clearStatistics();
     saveFeedbacks([]);
     clearCurrentExamSession();
-    setCurrentUser(null);
+    // setCurrentUser(null); // 사용자 세션은 유지 (로그아웃 방지)
 
-    console.log('✅ 모든 데이터 삭제 완료');
+    console.log('✅ 모든 데이터 삭제 완료 (세션 유지)');
   } catch (error) {
     console.error('❌ 데이터 삭제 실패:', error);
     throw new Error('데이터 삭제에 실패했습니다.');
   }
 }
+
 
 /**
  * 브라우저 캐시 완전 삭제 (모바일/PC 모두 지원)
@@ -1590,3 +1656,38 @@ export function needsServerSync(localQuestionCount: number, serverQuestionCount:
   console.log(`✅ 동기화 불필요 (마지막 동기화: ${new Date(lastSync.timestamp).toLocaleString()})`);
   return false;
 }
+
+// ==========================================
+// 파이널 학습 진도 관리
+// ==========================================
+export const FINAL_STUDY_PROGRESS_KEY = 'final_study_progress';
+
+export interface FinalStudyProgress {
+  currentIndex: number;
+  lastUpdated: number;
+}
+
+export const getFinalStudyProgress = (): FinalStudyProgress | null => {
+  try {
+    const data = localStorage.getItem(FINAL_STUDY_PROGRESS_KEY);
+    return data ? JSON.parse(data) : null;
+  } catch {
+    return null;
+  }
+};
+
+export const saveFinalStudyProgress = (currentIndex: number) => {
+  try {
+    const progress: FinalStudyProgress = {
+      currentIndex,
+      lastUpdated: Date.now()
+    };
+    localStorage.setItem(FINAL_STUDY_PROGRESS_KEY, JSON.stringify(progress));
+  } catch (e) {
+    console.error('파이널 학습 진도 저장 실패:', e);
+  }
+};
+
+export const clearFinalStudyProgress = () => {
+  localStorage.removeItem(FINAL_STUDY_PROGRESS_KEY);
+};

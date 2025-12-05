@@ -13,28 +13,123 @@ body {
 
 /* 인쇄 스타일 */
 @media print {
+
   /* 화면용 UI는 숨기기 */
   .non-printable {
     display: none !important;
   }
 
-  /* 인쇄용 컨텐츠는 표시 */
+  /* 인쇄용 컨텐츠는 표시 - 기본 설정 (보통 크기) */
   .printable {
     display: block !important;
-    font-size: 12px; /* 기본 14px에서 12px로 2pt 감소 */
-    line-height: 1.3; /* 줄간격 축소 */
+    visibility: visible !important;
+    position: static !important;
+    left: auto !important;
+    font-size: 13px;
+    /* 12px → 13px (가독성 개선) */
+    line-height: 1.5;
+    /* 1.3 → 1.5 (줄간격 확대) */
   }
 
-  /* 2단 컬럼 레이아웃 (가운데 줄 포함) */
-  .printable .space-y-6 {
+  /* 레이아웃 옵션: 1단 (기본) */
+  .print-layout-single .space-y-6 {
+    column-count: 1;
+  }
+
+  /* 레이아웃 옵션: 2단 */
+  .print-layout-double .space-y-6 {
     column-count: 2;
     column-gap: 1.5cm;
-    column-rule: 1px solid #ccc; /* 가운데 구분선 */
+    column-rule: 1px solid #ccc;
   }
 
-  /* 페이지 나누기 최적화 */
+  /* 폰트 크기 옵션: 작게 */
+  .print-font-small {
+    font-size: 12px;
+  }
+
+  .print-font-small .text-base {
+    font-size: 12px;
+  }
+
+  .print-font-small .text-lg {
+    font-size: 14px;
+  }
+
+  .print-font-small .text-2xl {
+    font-size: 16px;
+  }
+
+  .print-font-small h1 {
+    font-size: 16px;
+  }
+
+  .print-font-small h3 {
+    font-size: 13px;
+  }
+
+  /* 폰트 크기 옵션: 보통 (기본) */
+  .print-font-medium {
+    font-size: 14px;
+  }
+
+  .print-font-medium .text-base {
+    font-size: 14px;
+  }
+
+  .print-font-medium .text-lg {
+    font-size: 16px;
+  }
+
+  .print-font-medium .text-2xl {
+    font-size: 18px;
+  }
+
+  .print-font-medium h1 {
+    font-size: 18px;
+  }
+
+  .print-font-medium h3 {
+    font-size: 15px;
+  }
+
+  /* 폰트 크기 옵션: 크게 */
+  .print-font-large {
+    font-size: 16px;
+  }
+
+  .print-font-large .text-base {
+    font-size: 16px;
+  }
+
+  .print-font-large .text-lg {
+    font-size: 18px;
+  }
+
+  .print-font-large .text-2xl {
+    font-size: 20px;
+  }
+
+  .print-font-large h1 {
+    font-size: 20px;
+  }
+
+  .print-font-large h3 {
+    font-size: 17px;
+  }
+
+  /* 스마트 페이지 분할 - 문제 단위로 페이지 나누기 */
   .break-inside-avoid-page {
-    break-inside: avoid-page; /* 페이지 나누기는 피하되 컬럼 나누기는 허용 */
+    page-break-inside: avoid;
+    break-inside: avoid;
+    min-height: 4cm;
+    /* 최소 높이 확보 */
+  }
+
+  /* 이미지 포함 문제 특별 처리 */
+  .printable .has-image {
+    page-break-before: auto;
+    page-break-after: auto;
     page-break-inside: avoid;
   }
 
@@ -50,61 +145,187 @@ body {
     padding: 0;
   }
 
-  /* 문제 제목 줄 간격 조정 */
+  /* 문제 제목 개선 */
   .printable h1 {
-    margin-bottom: 1cm;
-    font-size: 16px; /* 제목도 축소 */
+    margin-bottom: 1.2cm;
+    font-size: 18px;
+    /* 16px → 18px */
+    font-weight: 700;
   }
 
-  /* 문제 간격 축소 */
-  .printable .space-y-6 > div {
-    margin-bottom: 0.3cm; /* 0.4cm에서 0.3cm로 축소 */
-    padding-bottom: 0.3cm;
+  /* 문제 번호 강조 */
+  .printable h3 {
+    font-size: 15px;
+    font-weight: 700;
   }
 
-  /* 보기 항목 컴팩트 배치 */
+  /* 문제 간격 최적화 */
+  .printable .space-y-6>div {
+    margin-bottom: 0.4cm;
+    padding-bottom: 0.4cm;
+    page-break-inside: avoid;
+    /* 문제가 페이지 중간에서 잘리지 않도록 */
+  }
+
+  /* 보기 항목 기본 배치 (1열) */
   .printable .space-y-2 {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(45%, 1fr));
-    gap: 0.1cm;
-    column-gap: 0.3cm;
+    display: block;
   }
 
-  .printable .space-y-2 > div {
+  .printable .space-y-2>div {
     break-inside: avoid;
+    margin-bottom: 0.15cm;
   }
 
-  /* 이미지 크기 제한 */
+  /* 보기 항목 2열 그리드 배치 (짧은 선택지용 - grid-cols-2 클래스가 있을 때만) */
+  .printable .space-y-2.grid-cols-2 {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    /* 2열 그리드 */
+    gap: 0.15cm 0.5cm;
+    /* 세로 간격 0.15cm, 가로 간격 0.5cm */
+  }
+
+  .printable .space-y-2.grid-cols-2>div {
+    margin-bottom: 0;
+    /* 그리드에서는 gap으로 처리 */
+  }
+
+  /* 이미지 크기 확대 */
   .printable img {
     max-width: 100%;
-    max-height: 4cm;
+    max-height: 6cm;
+    /* 4cm → 6cm (50% 증가) */
+    page-break-inside: avoid;
   }
 
-  /* 텍스트 요소 폰트 크기 조정 */
+  /* 텍스트 요소 폰트 크기 기본값 (클래스 옵션 미지정 시) */
   .printable .text-base {
-    font-size: 12px;
+    font-size: 12.8px;
+    /* 13px → 12.8px (문제 텍스트 한 줄 표시 개선) */
+    letter-spacing: -0.015em;
+    /* 자간 -1.5% */
+    line-height: 1.45;
+    /* 줄간격 조정 */
+    word-break: keep-all;
+    /* 한글 단어 단위 유지 */
+    overflow-wrap: break-word;
+    /* 긴 단어는 줄바꿈 허용 */
   }
 
   .printable .text-lg {
-    font-size: 14px;
+    font-size: 15px;
+    word-break: keep-all;
   }
 
   .printable .text-2xl {
-    font-size: 16px;
+    font-size: 18px;
   }
 
   .printable .text-sm {
-    font-size: 10px;
+    font-size: 11px;
   }
 
   .printable .text-xs {
+    font-size: 10px;
+  }
+
+  /* 답안 작성란 스타일 */
+  .answer-space {
+    height: 1cm;
+    border-top: 1px dashed #ccc;
+    margin-top: 0.3cm;
+    padding-top: 0.1cm;
+  }
+
+  .answer-space span {
     font-size: 9px;
+    color: #999;
+  }
+
+  /* 워터마크 스타일 */
+  .printable::after {
+    content: "학습용 | " attr(data-user-name) " | " attr(data-print-date);
+    position: fixed;
+    bottom: 0.5cm;
+    right: 1cm;
+    font-size: 9px;
+    color: #999;
+    opacity: 0.7;
   }
 }
 
 /* 화면 표시 시 인쇄용 컨텐츠 숨기기 */
+/* LaTeX 렌더러가 JavaScript로 동작하므로 display:none 대신 visibility:hidden 사용 */
 @media screen {
   .printable {
-    display: none !important;
+    /* display: none 사용 시 LaTeX가 렌더링되지 않음 */
+    visibility: hidden !important;
+    position: absolute !important;
+    left: -9999px !important;
+    width: 210mm !important;
+    /* A4 용지 너비 유지 (레이아웃 계산을 위해) */
+    overflow: hidden !important;
+    pointer-events: none !important;
+    height: auto !important;
+  }
+}
+
+/* ============================================
+   랜덤 60문제 레이아웃 개선 (컴팩트 UI)
+   ============================================ */
+
+/* 메인 컨테이너 최대 너비 제한 - max-w-7xl 오버라이드 */
+
+.non-printable .max-w-7xl {
+  max-width: 56rem !important;
+  /* 896px - 더 컴팩트하게 */
+}
+
+/* 버튼 크기 최적화 - 터치 친화적이면서 과도하지 않게 */
+@media (min-width: 640px) {
+  .non-printable button.px-2.py-1\.5 {
+    padding: 0.375rem 0.625rem !important;
+    /* py-1.5 px-2.5 */
+    font-size: 0.75rem !important;
+    /* text-xs */
+  }
+}
+
+/* 문제 영역 패딩 줄이기 */
+.non-printable .min-h-\[300px\] {
+  min-height: 200px !important;
+}
+
+/* 선택지 간격 최적화 */
+.non-printable .space-y-2>button {
+  padding-top: 0.375rem !important;
+  padding-bottom: 0.375rem !important;
+}
+
+/* 문제 번호 그리드 버튼 크기 조정 */
+.non-printable .aspect-square.rounded-full {
+  font-size: 0.875rem !important;
+  /* text-sm */
+}
+
+/* 헤더 여백 조정 */
+.non-printable .shadow-md.p-2 {
+  padding: 0.5rem !important;
+}
+
+/* 모바일에서 더 컴팩트하게 */
+@media (max-width: 640px) {
+  .non-printable .p-3 {
+    padding: 0.5rem !important;
+  }
+
+  .non-printable .mb-4 {
+    margin-bottom: 0.5rem !important;
+  }
+
+  .non-printable .gap-5 {
+    gap: 0.75rem !important;
+    /* gap-3 */
   }
 }

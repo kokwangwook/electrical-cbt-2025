@@ -8,10 +8,11 @@ import Register from './pages/Register';
 import Admin from './pages/Admin';
 import WrongAnswers from './pages/WrongAnswers';
 import Statistics from './pages/Statistics';
+import FinalStudy from './pages/FinalStudy';
 import { getCurrentUser, initializeData, saveCurrentExamSession, getCurrentExamSession, getQuestions } from './services/storage';
 import type { ExamSession } from './types';
 
-type AppState = 'login' | 'register' | 'home' | 'exam' | 'result' | 'admin' | 'wrongAnswers' | 'statistics';
+type AppState = 'login' | 'register' | 'home' | 'exam' | 'result' | 'admin' | 'wrongAnswers' | 'statistics' | 'finalStudy';
 
 function App() {
   const [state, setState] = useState<AppState>('login');
@@ -65,6 +66,20 @@ function App() {
         setState('login');
       }
     }
+
+    // URL hash 기반 라우팅 (플래시카드)
+    const handleHashChange = () => {
+      if (window.location.hash === '#final-study') {
+        setState('finalStudy');
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    handleHashChange(); // 초기 로드 시 체크
+
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+    };
   }, []);
 
   const handleLoginSuccess = () => {
@@ -113,15 +128,25 @@ function App() {
     setExamMode(mode);
     setStartTime(Date.now());
 
-    // 세션에 모드 저장
-    const session: ExamSession = {
-      questions: selectedQuestions,
-      answers: {},
-      startTime: Date.now(),
-      mode: mode as any,
-      userId: getCurrentUser() || undefined,
-    };
-    saveCurrentExamSession(session);
+    // 기존 세션이 있고 문제 세트가 같으면 세션을 덮어쓰지 않음 (answers 유지)
+    const existingSession = getCurrentExamSession();
+    const existingQuestionIds = existingSession?.questions?.map(q => q.id).sort().join(',') || '';
+    const newQuestionIds = selectedQuestions.map(q => q.id).sort().join(',');
+
+    if (existingSession && existingQuestionIds === newQuestionIds && Object.keys(existingSession.answers || {}).length > 0) {
+      // 기존 세션에 답변이 있으면 세션을 덮어쓰지 않음
+      console.log(`📋 기존 세션 유지: ${Object.keys(existingSession.answers || {}).length}개 답변 보존`);
+    } else {
+      // 새로운 세션 저장
+      const session: ExamSession = {
+        questions: selectedQuestions,
+        answers: {},
+        startTime: Date.now(),
+        mode: mode as any,
+        userId: getCurrentUser() || undefined,
+      };
+      saveCurrentExamSession(session);
+    }
 
     setState('exam');
   };
@@ -138,7 +163,7 @@ function App() {
     // 실전 모의고사 모드이고 새 창으로 열린 경우 창 닫기
     const params = new URLSearchParams(window.location.search);
     const isNewWindow = params.get('mode') === 'exam' && window.opener !== null;
-    
+
     if (isNewWindow && examMode === 'timedRandom') {
       // 새 창 닫기
       window.close();
@@ -155,7 +180,7 @@ function App() {
           }
           return sessionQ;
         });
-        
+
         setQuestions(questionsWithImages);
         setExamMode(session.mode || 'untimedRandom');
         setStartTime(session.startTime || Date.now());
@@ -187,7 +212,7 @@ function App() {
     const startTime = Date.now();
     setStartTime(startTime);
     setExamMode('wrong'); // 오답노트 복습 모드
-    
+
     // ExamSession 저장
     const currentUserId = getCurrentUser();
     const sessionData: ExamSession = {
@@ -199,7 +224,7 @@ function App() {
       userId: currentUserId || undefined, // 현재 사용자 ID 저장
     };
     saveCurrentExamSession(sessionData);
-    
+
     setState('exam');
   };
 
@@ -224,6 +249,7 @@ function App() {
         <Home
           onStartExam={handleStartExam}
           onGoToStatistics={handleGoToStatistics}
+          onGoToFinalStudy={() => setState('finalStudy')}
         />
       )}
       {state === 'exam' && (
@@ -244,6 +270,14 @@ function App() {
       )}
       {state === 'statistics' && <Statistics onBack={handleBackToHome} />}
       {state === 'admin' && <Admin />}
+      {state === 'finalStudy' && (
+        <FinalStudy
+          onGoBack={() => {
+            window.location.hash = '';
+            setState('home');
+          }}
+        />
+      )}
     </div>
   );
 }

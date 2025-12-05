@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>플래시카드 데이터 업로드 - Supabase</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+    }
+    .container {
+      background: white;
+      border-radius: 10px;
+      padding: 30px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+    h1 {
+      color: #667eea;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+    label {
+      display: block;
+      margin-top: 20px;
+      font-weight: bold;
+      color: #333;
+    }
+    input[type="text"], input[type="file"] {
+      width: 100%;
+      padding: 10px;
+      margin-top: 5px;
+      border: 2px solid #ddd;
+      border-radius: 5px;
+      box-sizing: border-box;
+    }
+    button {
+      background: #667eea;
+      color: white;
+      padding: 12px 30px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-top: 20px;
+      width: 100%;
+      font-weight: bold;
+    }
+    button:hover {
+      background: #5568d3;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    #status {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 5px;
+      display: none;
+    }
+    #status.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    #status.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    #status.info {
+      background: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #bee5eb;
+    }
+    .progress {
+      margin-top: 20px;
+      display: none;
+    }
+    .progress-bar {
+      width: 100%;
+      height: 30px;
+      background: #f0f0f0;
+      border-radius: 15px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #667eea, #764ba2);
+      width: 0%;
+      transition: width 0.3s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      font-size: 14px;
+    }
+    .stats {
+      margin-top: 15px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 5px;
+      display: none;
+    }
+    .stats h3 {
+      margin-top: 0;
+      color: #667eea;
+    }
+    .stats p {
+      margin: 5px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎴 플래시카드 데이터 업로드</h1>
+    <p class="subtitle">구글 시트 → CSV → Supabase flashcards 테이블</p>
+
+    <label for="supabaseUrl">Supabase URL:</label>
+    <input type="text" id="supabaseUrl" placeholder="https://your-project.supabase.co">
+
+    <label for="supabaseKey">Supabase Anon Key:</label>
+    <input type="text" id="supabaseKey" placeholder="your-anon-key">
+
+    <label for="csvFile">CSV 파일 선택:</label>
+    <input type="file" id="csvFile" accept=".csv">
+    <p style="font-size: 12px; color: #666; margin-top: 5px;">
+      💡 구글 시트에서 "파일 → 다운로드 → CSV" 선택
+    </p>
+
+    <button id="uploadBtn" onclick="handleUpload()">📤 업로드 시작</button>
+
+    <div class="progress" id="progress">
+      <h3>업로드 진행 중...</h3>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill">0%</div>
+      </div>
+      <p id="progressText" style="margin-top: 10px; text-align: center;">준비 중...</p>
+    </div>
+
+    <div id="status"></div>
+
+    <div class="stats" id="stats">
+      <h3>📊 업로드 결과</h3>
+      <p><strong>총 문제 수:</strong> <span id="totalCount">0</span>개</p>
+      <p><strong>성공:</strong> <span id="successCount">0</span>개</p>
+      <p><strong>실패:</strong> <span id="failCount">0</span>개</p>
+      <hr>
+      <p><strong>카테고리별:</strong></p>
+      <ul id="categoryList"></ul>
+    </div>
+  </div>
+
+  <script>
+    const BATCH_SIZE = 100; // 한 번에 업로드할 개수
+
+    function showStatus(message, type) {
+      const statusDiv = document.getElementById('status');
+      statusDiv.textContent = message;
+      statusDiv.className = type;
+      statusDiv.style.display = 'block';
+    }
+
+    function updateProgress(current, total) {
+      const percent = Math.round((current / total) * 100);
+      document.getElementById('progressFill').style.width = percent + '%';
+      document.getElementById('progressFill').textContent = percent + '%';
+      document.getElementById('progressText').textContent = `${current} / ${total} 완료`;
+    }
+
+    function parseCSV(text) {
+      const lines = text.split('\n');
+      const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+      
+      const data = [];
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        
+        // CSV 파싱 (따옴표 안의 쉼표 처리)
+        const values = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let char of lines[i]) {
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            values.push(current.trim().replace(/^"|"$/g, ''));
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        values.push(current.trim().replace(/^"|"$/g, ''));
+        
+        // 데이터 유효성 검사
+        if (values.length >= 5) {
+          const obj = {};
+          headers.forEach((header, index) => {
+            obj[header] = values[index] || '';
+          });
+          data.push(obj);
+        }
+      }
+      
+      return data;
+    }
+
+    function validateData(data) {
+      const validated = [];
+      const errors = [];
+      
+      data.forEach((row, index) => {
+        // 필수 필드 체크
+        if (!row['카테고리'] || !row['문제 전문'] || !row['정답 키워드']) {
+          errors.push(`행 ${index + 2}: 필수 필드 누락`);
+          return;
+        }
+        
+        // 카테고리 검증
+        const validCategories = ['전기이론', '전기기기', '전기설비'];
+        if (!validCategories.includes(row['카테고리'])) {
+          errors.push(`행 ${index + 2}: 올바르지 않은 카테고리 (${row['카테고리']})`);
+          return;
+        }
+        
+        validated.push({
+          no: parseInt(row['No.']) || index + 1,
+          category: row['카테고리'],
+          question: row['문제 전문'],
+          answer_keyword: row['정답 키워드'],
+          explanation: row['해설 및 암기 팁'] || '',
+        });
+      });
+      
+      return { validated, errors };
+    }
+
+    async function uploadBatch(supabase, batch) {
+      const { data, error } = await supabase
+        .from('flashcards')
+        .insert(batch);
+      
+      if (error) {
+        console.error('배치 업로드 에러:', error);
+        throw error;
+      }
+      
+      return data;
+    }
+
+    async function handleUpload() {
+      const supabaseUrl = document.getElementById('supabaseUrl').value.trim();
+      const supabaseKey = document.getElementById('supabaseKey').value.trim();
+      const csvFile = document.getElementById('csvFile').files[0];
+      
+      // 입력 검증
+      if (!supabaseUrl || !supabaseKey) {
+        showStatus('Supabase URL과 Anon Key를 입력해주세요.', 'error');
+        return;
+      }
+      
+      if (!csvFile) {
+        showStatus('CSV 파일을 선택해주세요.', 'error');
+        return;
+      }
+      
+      // 버튼 비활성화
+      document.getElementById('uploadBtn').disabled = true;
+      document.getElementById('progress').style.display = 'block';
+      document.getElementById('stats').style.display = 'none';
+      showStatus('CSV 파일을 읽는 중...', 'info');
+      
+      try {
+        // Supabase 클라이언트 생성
+        const { createClient } = supabase;
+        const supabaseClient = createClient(supabaseUrl, supabaseKey);
+        
+        // CSV 파일 읽기
+        const text = await csvFile.text();
+        const parsedData = parseCSV(text);
+        
+        showStatus(`총 ${parsedData.length}개 데이터 발견. 검증 중...`, 'info');
+        
+        // 데이터 검증
+        const { validated, errors } = validateData(parsedData);
+        
+        if (errors.length > 0) {
+          console.warn('검증 에러:', errors);
+          showStatus(`검증 에러 ${errors.length}개 발견. 유효한 데이터만 업로드합니다.`, 'info');
+        }
+        
+        if (validated.length === 0) {
+          showStatus('유효한 데이터가 없습니다.', 'error');
+          document.getElementById('uploadBtn').disabled = false;
+          document.getElementById('progress').style.display = 'none';
+          return;
+        }
+        
+        // 배치 업로드
+        const totalBatches = Math.ceil(validated.length / BATCH_SIZE);
+        let successCount = 0;
+        let failCount = 0;
+        
+        const categoryCounts = {};
+        
+        for (let i = 0; i < totalBatches; i++) {
+          const start = i * BATCH_SIZE;
+          const end = Math.min(start + BATCH_SIZE, validated.length);
+          const batch = validated.slice(start, end);
+          
+          try {
+            await uploadBatch(supabaseClient, batch);
+            successCount += batch.length;
+            
+            // 카테고리별 카운트
+            batch.forEach(item => {
+              categoryCounts[item.category] = (categoryCounts[item.category] || 0) + 1;
+            });
+          } catch (error) {
+            failCount += batch.length;
+            console.error(`배치 ${i + 1} 업로드 실패:`, error);
+          }
+          
+          updateProgress(end, validated.length);
+          
+          // 서버 부하 방지를 위한 지연
+          if (i < totalBatches - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+        
+        // 결과 표시
+        document.getElementById('totalCount').textContent = validated.length;
+        document.getElementById('successCount').textContent = successCount;
+        document.getElementById('failCount').textContent = failCount;
+        
+        const categoryList = document.getElementById('categoryList');
+        categoryList.innerHTML = '';
+        Object.entries(categoryCounts).forEach(([category, count]) => {
+          const li = document.createElement('li');
+          li.textContent = `${category}: ${count}개`;
+          categoryList.appendChild(li);
+        });
+        
+        document.getElementById('stats').style.display = 'block';
+        
+        if (failCount === 0) {
+          showStatus(`✅ 업로드 완료! 총 ${successCount}개 플래시카드가 업로드되었습니다.`, 'success');
+        } else {
+          showStatus(`⚠️ 업로드 완료 (일부 실패). ${successCount}개 성공, ${failCount}개 실패`, 'error');
+        }
+        
+      } catch (error) {
+        console.error('업로드 오류:', error);
+        showStatus(`오류 발생: ${error.message}`, 'error');
+      } finally {
+        document.getElementById('uploadBtn').disabled = false;
+        document.getElementById('progress').style.display = 'none';
+      }
+    }
+  </script>
+</body>
+</html>
