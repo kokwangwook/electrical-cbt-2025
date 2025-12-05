@@ -14,6 +14,7 @@ export default function FinalStudy({ onGoBack }: FinalStudyProps) {
     const [isCompleted, setIsCompleted] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [isInitialized, setIsInitialized] = useState(false);
 
     // 데이터 로드 및 진도 복원
     useEffect(() => {
@@ -38,6 +39,7 @@ export default function FinalStudy({ onGoBack }: FinalStudyProps) {
                 setError('데이터 로딩 중 오류가 발생했습니다.');
             } finally {
                 setIsLoading(false);
+                setIsInitialized(true); // 데이터 로드 및 복원 완료 후 저장 활성화
             }
         };
         loadData();
@@ -45,10 +47,11 @@ export default function FinalStudy({ onGoBack }: FinalStudyProps) {
 
     // 진도 자동 저장
     useEffect(() => {
-        if (flashcards.length > 0 && currentIndex >= 0) {
+        // 초기화가 완료되고, 데이터가 있을 때만 저장
+        if (isInitialized && flashcards.length > 0 && currentIndex >= 0) {
             saveFinalStudyProgress(currentIndex);
         }
-    }, [currentIndex, flashcards.length]);
+    }, [currentIndex, flashcards.length, isInitialized]);
 
     const handleNext = () => {
         if (currentIndex < flashcards.length - 1) {
